@@ -1,5 +1,6 @@
 use chrono::{TimeZone, Utc};
 
+use crate::discord::attachments::{ResolvedAttachment, ResolvedMessage};
 use crate::discord::chat_message::{AttachmentMeta, ChatMessage};
 
 pub(crate) fn attachment(filename: &str, content_type: Option<&str>) -> AttachmentMeta {
@@ -34,5 +35,16 @@ pub(crate) fn nuki_message(id: u64, content: &str) -> ChatMessage {
         author_roles: vec![],
         is_nuki: true,
         ..user_message(id, content)
+    }
+}
+
+pub(crate) fn resolved(
+    message: ChatMessage,
+    attachments: Vec<ResolvedAttachment>,
+) -> ResolvedMessage {
+    ResolvedMessage {
+        message,
+        attachments,
+        thread: None,
     }
 }

@@ -3,7 +3,8 @@
 use anyhow::Context;
 use futures::future::try_join_all;
 use serenity::builder::GetMessages;
-use serenity::model::channel::{GuildChannel, Message, MessageType};
+use serenity::http::Http;
+use serenity::model::channel::{ChannelType, GuildChannel, Message, MessageType};
 use serenity::model::id::{ChannelId, GuildId, MessageId};
 
 use crate::app::App;
@@ -34,20 +35,32 @@ pub async fn fetch_channel(app: &App, channel_id: ChannelId) -> anyhow::Result<G
         .with_context(|| format!("the channel {channel_id} is not a channel of a server"))
 }
 
-/// The `CONTEXT_MESSAGES` last messages of the channel: the history before the unit, then the unit.
+pub(super) fn is_thread(channel: &GuildChannel) -> bool {
+    matches!(
+        channel.kind,
+        ChannelType::PublicThread | ChannelType::PrivateThread | ChannelType::NewsThread
+    )
+}
+
+/// The `CONTEXT_MESSAGES` last messages of the channel: the history before the unit, then the
+/// unit. In a thread, the history opens the thread, as `in_thread` tells.
 pub async fn fetch_unit_context(
     app: &App,
-    guild_id: GuildId,
+    channel: &GuildChannel,
     unit: &[Message],
 ) -> anyhow::Result<Vec<ResolvedMessage>> {
     let first = first_message(unit);
     let earlier_count = app.config.context_messages.saturating_sub(unit.len());
     let earlier = messages_before(app, first.channel_id, first.id, earlier_count).await?;
     let messages = earlier.into_iter().chain(unit.iter().cloned()).collect();
-    resolve(app, guild_id, messages).await
+    if !is_thread(channel) {
+        return resolve(app, channel.guild_id, messages).await;
+    }
+    in_thread(app, channel, messages).await
 }
 
 /// The messages of the intake, oldest first, from the first message of the unit that started it.
+/// The history opens the thread, as `in_thread` tells.
 ///
 /// In an existing thread or forum post, the intake started in the thread, so the history is the
 /// thread messages from that message on. A new thread is made from the last message of the unit,
@@ -55,36 +68,70 @@ pub async fn fetch_unit_context(
 /// in the parent channel, the starter message, and all messages of the thread.
 pub async fn fetch_thread_history(
     app: &App,
-    guild_id: GuildId,
+    thread: &GuildChannel,
     intake: &Intake,
 ) -> anyhow::Result<Vec<ResolvedMessage>> {
     let origin_id = MessageId::new(intake.origin_message_id);
-    let thread_messages = messages_since(app, ChannelId::new(intake.thread_id), origin_id).await?;
+    let thread_messages = messages_since(app, thread.id, origin_id).await?;
     let messages = if intake.origin_channel_id == intake.thread_id {
         thread_messages
     } else {
-        with_parent_messages(app, intake, thread_messages).await?
+        let before_starter = origin_messages(app, intake).await?;
+        before_starter.into_iter().chain(thread_messages).collect()
     };
-    let conversation = messages
+    in_thread(app, thread, messages).await
+}
+
+/// The history of `messages` in `thread`, without system messages. The message that started
+/// the thread is added in its place, and the first message has the marker that opens the thread.
+async fn in_thread(
+    app: &App,
+    thread: &GuildChannel,
+    messages: Vec<Message>,
+) -> anyhow::Result<Vec<ResolvedMessage>> {
+    let parent_id = thread
+        .parent_id
+        .with_context(|| format!("the thread {} has no parent channel", thread.id))?;
+    let parent = fetch_channel(app, parent_id).await?;
+    let starter = starter_message(&app.http, thread, &parent).await?;
+    let conversation = with_starter(starter, messages)
         .into_iter()
         .filter(|message| !is_system(message))
         .collect();
-    resolve(app, guild_id, conversation).await
+    let history = resolve(app, thread.guild_id, conversation).await?;
+    Ok(with_opens_marker(history, thread, &parent))
 }
 
-/// The earlier messages of the unit in the parent channel, the starter message, then the thread.
-async fn with_parent_messages(
-    app: &App,
-    intake: &Intake,
-    thread_messages: Vec<Message>,
-) -> anyhow::Result<Vec<Message>> {
-    let before_starter = origin_messages(app, intake).await?;
-    let starter = starter_message(app, intake).await?;
-    Ok(before_starter
-        .into_iter()
-        .chain(starter)
-        .chain(thread_messages)
-        .collect())
+/// `messages` with `starter` in the sequence of the IDs. A starter that `messages` already
+/// contain, the first message of a forum post, is there once.
+fn with_starter(starter: Option<Message>, messages: Vec<Message>) -> Vec<Message> {
+    let mut all: Vec<Message> = starter.into_iter().chain(messages).collect();
+    all.sort_by_key(|message| message.id);
+    all.dedup_by_key(|message| message.id);
+    all
+}
+
+/// Puts the marker that opens `thread` on the first message of `history`.
+fn with_opens_marker(
+    history: Vec<ResolvedMessage>,
+    thread: &GuildChannel,
+    parent: &GuildChannel,
+) -> Vec<ResolvedMessage> {
+    let mut messages = history.into_iter();
+    let Some(first) = messages.next() else {
+        return Vec::new();
+    };
+    let opens = ThreadMarker::Opens {
+        name: thread.name.clone(),
+        parent_channel_name: parent.name.clone(),
+        reply_count: reply_count(thread),
+        has_starter: first.message.id == thread.id.get(),
+    };
+    let opened = ResolvedMessage {
+        thread: Some(opens),
+        ..first
+    };
+    std::iter::once(opened).chain(messages).collect()
 }
 
 /// The `count` messages before `message_id`, oldest first, without system messages.
@@ -135,12 +182,20 @@ async fn messages_since(
     Ok(newest_first)
 }
 
-/// The message that a new thread was made from. A deleted starter message is left out.
-async fn starter_message(app: &App, intake: &Intake) -> anyhow::Result<Option<Message>> {
-    let fetched = ChannelId::new(intake.origin_channel_id)
-        .message(&app.http, MessageId::new(intake.thread_id))
-        .await;
-    match fetched {
+/// The message that started `thread`. It has the ID of the thread. A thread made from a message
+/// has that message in the parent channel, and a forum post has it in the post. A deleted
+/// starter message, or a thread made without a message, gives `None`.
+async fn starter_message(
+    http: &Http,
+    thread: &GuildChannel,
+    parent: &GuildChannel,
+) -> anyhow::Result<Option<Message>> {
+    let channel_id = match parent.kind {
+        ChannelType::Forum => thread.id,
+        _ => parent.id,
+    };
+    let starter_id = MessageId::new(thread.id.get());
+    match channel_id.message(http, starter_id).await {
         Ok(starter) => Ok(Some(starter)),
         Err(error) if is_not_found(&error) => Ok(None),
         Err(error) => Err(error.into()),
@@ -212,8 +267,14 @@ async fn resolve(
 fn started_marker(message: &Message) -> Option<ThreadMarker> {
     message.thread.as_ref().map(|thread| ThreadMarker::Started {
         name: thread.name.clone(),
-        reply_count: thread.message_count.unwrap_or(0),
+        reply_count: reply_count(thread),
     })
+}
+
+/// The `message_count` of the thread. Discord does not count the starter message. A thread
+/// without the field has no replies.
+fn reply_count(thread: &GuildChannel) -> u32 {
+    thread.message_count.unwrap_or(0)
 }
 
 /// The input modalities that OpenRouter lists now for the active model. Messages without
@@ -233,12 +294,194 @@ async fn input_modalities(app: &App, messages: &[ChatMessage]) -> anyhow::Result
 
 #[cfg(test)]
 mod tests {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer};
+
     use super::*;
+    use crate::discord::test_support::{resolved, user_message};
+    use crate::test_support::{discord_http, json_response};
 
     const THREAD_STARTER: &str =
         include_str!("../../tests/fixtures/discord/history_thread_starter.json");
     const PLAIN_MESSAGE: &str =
         include_str!("../../tests/fixtures/discord/context_message_with_attachment.json");
+    const THREAD: &str = include_str!("../../tests/fixtures/discord/history_thread.json");
+    const TEXT_CHANNEL: &str =
+        include_str!("../../tests/fixtures/discord/history_text_channel.json");
+    const FORUM_POST: &str = include_str!("../../tests/fixtures/discord/history_forum_post.json");
+    const FORUM_CHANNEL: &str =
+        include_str!("../../tests/fixtures/discord/history_forum_channel.json");
+    const FORUM_POST_STARTER: &str =
+        include_str!("../../tests/fixtures/discord/history_forum_post_starter.json");
+
+    fn channel(json: &str) -> GuildChannel {
+        serde_json::from_str(json).unwrap()
+    }
+
+    fn message_with_id(id: u64) -> Message {
+        let mut message = Message::default();
+        message.id = MessageId::new(id);
+        message
+    }
+
+    fn ids(messages: &[Message]) -> Vec<u64> {
+        messages.iter().map(|message| message.id.get()).collect()
+    }
+
+    async fn discord_serving(message_path: &str, status: u16, body: &str) -> MockServer {
+        let discord = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(message_path))
+            .respond_with(json_response(status, body))
+            .mount(&discord)
+            .await;
+        discord
+    }
+
+    #[tokio::test]
+    async fn the_starter_of_a_thread_made_from_a_message_is_in_the_parent_channel() {
+        let discord = discord_serving(
+            "/api/v10/channels/1200000000000000001/messages/1100000000000000003",
+            200,
+            THREAD_STARTER,
+        )
+        .await;
+
+        let starter = starter_message(
+            &discord_http(&discord),
+            &channel(THREAD),
+            &channel(TEXT_CHANNEL),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            starter.map(|message| message.id),
+            Some(MessageId::new(1100000000000000003))
+        );
+    }
+
+    #[tokio::test]
+    async fn the_starter_of_a_forum_post_is_in_the_post() {
+        let discord = discord_serving(
+            "/api/v10/channels/1100000000000000004/messages/1100000000000000004",
+            200,
+            FORUM_POST_STARTER,
+        )
+        .await;
+
+        let starter = starter_message(
+            &discord_http(&discord),
+            &channel(FORUM_POST),
+            &channel(FORUM_CHANNEL),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            starter.map(|message| message.id),
+            Some(MessageId::new(1100000000000000004))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_deleted_starter_is_left_out() {
+        let discord = discord_serving(
+            "/api/v10/channels/1200000000000000001/messages/1100000000000000003",
+            404,
+            r#"{"message": "Unknown Message", "code": 10008}"#,
+        )
+        .await;
+
+        let starter = starter_message(
+            &discord_http(&discord),
+            &channel(THREAD),
+            &channel(TEXT_CHANNEL),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(starter.map(|message| message.id), None);
+    }
+
+    #[test]
+    fn the_starter_goes_before_the_messages_of_the_thread() {
+        let messages = with_starter(
+            Some(message_with_id(3)),
+            vec![message_with_id(7), message_with_id(8)],
+        );
+
+        assert_eq!(ids(&messages), vec![3, 7, 8]);
+    }
+
+    #[test]
+    fn the_starter_goes_after_the_earlier_messages_of_the_unit_in_the_parent_channel() {
+        let messages = with_starter(
+            Some(message_with_id(3)),
+            vec![message_with_id(1), message_with_id(2), message_with_id(7)],
+        );
+
+        assert_eq!(ids(&messages), vec![1, 2, 3, 7]);
+    }
+
+    #[test]
+    fn a_starter_that_is_in_the_messages_is_there_once() {
+        let messages = with_starter(
+            Some(message_with_id(4)),
+            vec![message_with_id(4), message_with_id(5)],
+        );
+
+        assert_eq!(ids(&messages), vec![4, 5]);
+    }
+
+    #[test]
+    fn the_starter_opens_the_thread_when_it_is_the_first_message() {
+        let history = vec![
+            resolved(user_message(1100000000000000003, "wrong streams"), vec![]),
+            resolved(user_message(1100000000000000007, "any news?"), vec![]),
+        ];
+
+        let opened = with_opens_marker(history, &channel(THREAD), &channel(TEXT_CHANNEL));
+
+        assert_eq!(
+            opened,
+            vec![
+                ResolvedMessage {
+                    thread: Some(ThreadMarker::Opens {
+                        name: "nuclear is playing wrong streams, what should I do?".to_string(),
+                        parent_channel_name: "general".to_string(),
+                        reply_count: 5,
+                        has_starter: true,
+                    }),
+                    ..resolved(user_message(1100000000000000003, "wrong streams"), vec![])
+                },
+                resolved(user_message(1100000000000000007, "any news?"), vec![]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_first_message_that_is_not_the_starter_opens_the_thread_without_starter() {
+        let history = vec![resolved(
+            user_message(1100000000000000007, "any news?"),
+            vec![],
+        )];
+
+        let opened = with_opens_marker(history, &channel(THREAD), &channel(TEXT_CHANNEL));
+
+        assert_eq!(
+            opened,
+            vec![ResolvedMessage {
+                thread: Some(ThreadMarker::Opens {
+                    name: "nuclear is playing wrong streams, what should I do?".to_string(),
+                    parent_channel_name: "general".to_string(),
+                    reply_count: 5,
+                    has_starter: false,
+                }),
+                ..resolved(user_message(1100000000000000007, "any news?"), vec![])
+            }]
+        );
+    }
 
     #[test]
     fn a_message_that_started_a_thread_has_the_name_and_the_reply_count_of_the_thread() {

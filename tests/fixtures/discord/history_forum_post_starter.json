@@ -1,0 +1,15 @@
+{
+  "id": "1100000000000000004",
+  "channel_id": "1100000000000000004",
+  "author": { "id": "1300000000000000002", "username": "bob", "global_name": "Bob" },
+  "content": "Nuclear plays the wrong streams on Linux.",
+  "timestamp": "2026-10-19T12:36:00.000000+00:00",
+  "tts": false,
+  "mention_everyone": false,
+  "mentions": [],
+  "mention_roles": [],
+  "embeds": [],
+  "attachments": [],
+  "pinned": false,
+  "type": 0
+}

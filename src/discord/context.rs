@@ -31,13 +31,15 @@ fn roles_text(roles: &[String]) -> String {
     }
 }
 
-/// One entry per message: the header, then the label of each attachment and the thread that the
-/// message started, each on its own line.
+/// One entry per message: the thread that the message opens, the header, the label of each
+/// attachment, and the thread that the message started, each on its own line.
 pub fn jev_lines(messages: &[ResolvedMessage]) -> Vec<String> {
     messages
         .iter()
         .map(|resolved| {
-            std::iter::once(header(&resolved.message))
+            opens_line(resolved)
+                .into_iter()
+                .chain([header(&resolved.message)])
                 .chain(
                     resolved
                         .attachments
@@ -89,15 +91,41 @@ fn turn(resolved: &ResolvedMessage) -> Message {
 }
 
 fn user_turn(resolved: &ResolvedMessage) -> Message {
+    let opens_part = opens_line(resolved).map(UserContent::text);
     let header_part = UserContent::text(header(&resolved.message));
     let attachment_parts = resolved.attachments.iter().flat_map(attachment_parts);
     let started_part = started_line(resolved).map(UserContent::text);
     Message::from(
-        std::iter::once(header_part)
+        opens_part
+            .into_iter()
+            .chain([header_part])
             .chain(attachment_parts)
             .chain(started_part)
             .collect::<Vec<_>>(),
     )
+}
+
+/// The line before the header of the first message in the history of a thread.
+fn opens_line(resolved: &ResolvedMessage) -> Option<String> {
+    match &resolved.thread {
+        Some(ThreadMarker::Opens {
+            name,
+            parent_channel_name,
+            reply_count,
+            has_starter,
+        }) => {
+            let thread = format!(
+                "thread \"{name}\" in #{parent_channel_name} · {}",
+                replies_text(*reply_count)
+            );
+            if *has_starter {
+                Some(format!("[{thread} · started from this message:]"))
+            } else {
+                Some(format!("[{thread}]"))
+            }
+        }
+        Some(ThreadMarker::Started { .. }) | None => None,
+    }
 }
 
 /// The line after the attachment labels of a message that started a thread.
@@ -147,15 +175,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::discord::test_support::{nuki_message, user_message};
-
-    fn resolved(message: ChatMessage, attachments: Vec<ResolvedAttachment>) -> ResolvedMessage {
-        ResolvedMessage {
-            message,
-            attachments,
-            thread: None,
-        }
-    }
+    use crate::discord::test_support::{nuki_message, resolved, user_message};
 
     fn started(reply_count: u32) -> Option<ThreadMarker> {
         Some(ThreadMarker::Started {
@@ -310,6 +330,81 @@ mod tests {
                     "[this message started the thread \"nuclear is playing wrong streams, what should I do?\" · 5 replies]"
                 ),
             ])]
+        );
+    }
+
+    fn opens(has_starter: bool) -> Option<ThreadMarker> {
+        Some(ThreadMarker::Opens {
+            name: "nuclear is playing wrong streams, what should I do?".to_string(),
+            parent_channel_name: "general".to_string(),
+            reply_count: 5,
+            has_starter,
+        })
+    }
+
+    #[test]
+    fn the_jev_line_of_the_starter_of_a_thread_starts_with_the_thread() {
+        let messages = [ResolvedMessage {
+            thread: opens(true),
+            ..resolved(
+                user_message(1, "nuclear is playing wrong streams, what should I do?"),
+                vec![],
+            )
+        }];
+
+        assert_eq!(
+            jev_lines(&messages),
+            vec![
+                "[thread \"nuclear is playing wrong streams, what should I do?\" in #general · 5 replies · started from this message:]\n[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · roles: Linux, supporter]: nuclear is playing wrong streams, what should I do?"
+                    .to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_jev_line_of_the_first_message_of_a_thread_without_starter_starts_with_the_thread() {
+        let messages = [ResolvedMessage {
+            thread: opens(false),
+            ..resolved(user_message(1, "any news?"), vec![])
+        }];
+
+        assert_eq!(
+            jev_lines(&messages),
+            vec![
+                "[thread \"nuclear is playing wrong streams, what should I do?\" in #general · 5 replies]\n[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · roles: Linux, supporter]: any news?"
+                    .to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_turn_of_the_starter_of_a_thread_starts_with_the_thread() {
+        let messages = [
+            ResolvedMessage {
+                thread: opens(true),
+                ..resolved(
+                    user_message(1, "nuclear is playing wrong streams, what should I do?"),
+                    vec![],
+                )
+            },
+            resolved(nuki_message(2, "Which version do you use?"), vec![]),
+        ];
+
+        let history = build_history(&messages, &HashMap::new()).unwrap();
+
+        assert_eq!(
+            history,
+            vec![
+                Message::from(vec![
+                    UserContent::text(
+                        "[thread \"nuclear is playing wrong streams, what should I do?\" in #general · 5 replies · started from this message:]"
+                    ),
+                    UserContent::text(
+                        "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · roles: Linux, supporter]: nuclear is playing wrong streams, what should I do?"
+                    ),
+                ]),
+                Message::assistant("Which version do you use?"),
+            ]
         );
     }
 

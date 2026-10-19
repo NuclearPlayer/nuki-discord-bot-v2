@@ -1,0 +1,19 @@
+{
+  "id": "1200000000000000005",
+  "type": 15,
+  "last_message_id": "1100000000000000004",
+  "flags": 0,
+  "guild_id": "1000000000000000001",
+  "name": "help-forum",
+  "parent_id": null,
+  "rate_limit_per_user": 0,
+  "topic": null,
+  "position": 1,
+  "permission_overwrites": [],
+  "nsfw": false,
+  "available_tags": [],
+  "default_reaction_emoji": null,
+  "default_thread_rate_limit_per_user": 0,
+  "default_sort_order": null,
+  "default_forum_layout": 0
+}

@@ -3,11 +3,11 @@
 
 use chrono::Utc;
 use serenity::builder::CreateThread;
-use serenity::model::channel::{ChannelType, GuildChannel, Message};
+use serenity::model::channel::{GuildChannel, Message};
 use serenity::model::id::{ChannelId, MessageId};
 
 use crate::app::App;
-use crate::discord::history::{fetch_channel, fetch_thread_history};
+use crate::discord::history::{fetch_channel, fetch_thread_history, is_thread};
 use crate::discord::http_error::is_not_found;
 use crate::discord::pipeline::{first_message, last_message};
 use crate::discord::reply::{AppliedTurn, ReportedBy, apply_intake_outcome, thread_name};
@@ -21,8 +21,7 @@ use crate::workflows::{Outcome, TurnContext, timed};
 
 /// The thread of an intake, and the message that Nuki replies to in it.
 struct IntakeThread {
-    id: ChannelId,
-    name: String,
+    channel: GuildChannel,
     reply_to: Option<MessageId>,
 }
 
@@ -183,7 +182,7 @@ async fn thread_turn_context(
     unit_len: usize,
     stats: RunStats,
 ) -> anyhow::Result<TurnContext> {
-    let history = fetch_thread_history(app, thread.guild_id, intake).await?;
+    let history = fetch_thread_history(app, thread, intake).await?;
     turn_context(
         app,
         thread.guild_id,
@@ -208,13 +207,13 @@ pub(super) async fn start_intake(
 ) -> anyhow::Result<()> {
     let last = last_message(unit);
     let thread = intake_thread(app, channel, last, stats).await?;
-    let _typing = thread.id.start_typing(&app.http);
+    let _typing = thread.channel.id.start_typing(&app.http);
     let intake = app
         .store
         .intakes()
         .create(NewIntake {
             kind,
-            thread_id: thread.id.get(),
+            thread_id: thread.channel.id.get(),
             origin_channel_id: channel.id.get(),
             origin_message_id: first_message(unit).id.get(),
             reporter_id: last.author.id.get(),
@@ -230,12 +229,12 @@ pub(super) async fn start_intake(
         .record(Some(intake.reporter_id), Event::IntakeOpened(opened))
         .await;
     let guild_id = channel.guild_id;
-    let history = fetch_thread_history(app, guild_id, &intake).await?;
+    let history = fetch_thread_history(app, &thread.channel, &intake).await?;
     let ctx = turn_context(
         app,
         guild_id,
         trigger,
-        &thread.name,
+        &thread.channel.name,
         history,
         unit.len(),
         stats.clone(),
@@ -248,7 +247,7 @@ pub(super) async fn start_intake(
     )
     .await?;
     let applied = AppliedTurn {
-        channel_id: thread.id,
+        channel_id: thread.channel.id,
         reply_to: thread.reply_to,
     };
     apply_intake_outcome(app, stats, &applied, &intake, outcome, ReportedBy::Reporter).await
@@ -264,8 +263,7 @@ async fn intake_thread(
 ) -> anyhow::Result<IntakeThread> {
     if is_thread(channel) {
         return Ok(IntakeThread {
-            id: channel.id,
-            name: channel.name.clone(),
+            channel: channel.clone(),
             reply_to: Some(last.id),
         });
     }
@@ -283,15 +281,7 @@ async fn intake_thread(
         .record(Some(last.author.id.get()), Event::ThreadCreated(created))
         .await;
     Ok(IntakeThread {
-        id: thread.id,
-        name: thread.name,
+        channel: thread,
         reply_to: None,
     })
-}
-
-fn is_thread(channel: &GuildChannel) -> bool {
-    matches!(
-        channel.kind,
-        ChannelType::PublicThread | ChannelType::PrivateThread | ChannelType::NewsThread
-    )
 }

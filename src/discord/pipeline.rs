@@ -197,7 +197,7 @@ async fn classify(
 ) -> anyhow::Result<Option<Routed>> {
     let last = last_message(unit);
     let channel = fetch_channel(app, last.channel_id).await?;
-    let history = fetch_unit_context(app, channel.guild_id, unit).await?;
+    let history = fetch_unit_context(app, &channel, unit).await?;
     let lines = jev_lines(&history);
     let (history_lines, unit_lines) = lines.split_at(lines.len() - unit.len());
     let classification = app

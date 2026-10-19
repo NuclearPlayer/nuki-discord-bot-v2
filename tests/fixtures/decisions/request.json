@@ -1,0 +1,21 @@
+{
+  "model": "~typesafe/jev-latest",
+  "state": {
+    "messages": ["alice: does anyone know how to add a plugin?"],
+    "new_messages": ["bob: Nuclear crashes when I open the queue"]
+  },
+  "questions": {
+    "category": {
+      "type": "choice",
+      "instructions": "What do the new messages need from Nuki?",
+      "criteria": {
+        "help_request": "The author wants help with Nuclear.",
+        "bug_report": "The author reports behavior of Nuclear that is incorrect."
+      }
+    },
+    "has_version": {
+      "type": "noul",
+      "instructions": "Does the conversation state the Nuclear version?"
+    }
+  }
+}

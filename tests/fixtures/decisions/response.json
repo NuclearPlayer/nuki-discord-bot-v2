@@ -1,0 +1,13 @@
+{
+  "model": "typesafe/jev-1.14-20261014",
+  "answers": {
+    "category": {
+      "type": "choice",
+      "choice": "bug_report",
+      "confidence": 0.67,
+      "probabilities": { "help_request": 0.14, "bug_report": 0.86 }
+    },
+    "has_version": { "type": "noul", "noul": 0.04 }
+  },
+  "usage": { "input_tokens": 476, "output_tokens": 70, "cost": 0.000019992 }
+}

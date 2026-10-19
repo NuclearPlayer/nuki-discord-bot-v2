@@ -164,9 +164,9 @@ fn start_cooldown_after_unsolicited_chat(app: &App, applied: &AppliedTurn) {
     }
 }
 
-/// Sends the report to the reports channel, then closes the intake.
+/// Sends the report to the admin log channel, then closes the intake.
 async fn send_report(app: &App, intake: &Intake, report: &Report) -> anyhow::Result<()> {
-    ChannelId::new(app.config.reports_channel_id)
+    ChannelId::new(app.config.admin_log_channel_id)
         .send_message(&app.http, CreateMessage::new().embed(report_embed(report)))
         .await?;
     app.store.intakes().mark_reported(intake.id).await?;

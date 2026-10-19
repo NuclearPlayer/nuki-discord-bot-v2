@@ -3,6 +3,9 @@ use std::sync::RwLock;
 use crate::store::Result;
 use crate::store::settings::{ModelSelection, SettingsStore};
 
+/// The model before an administrator selects one with `/change-model`.
+pub const DEFAULT_MODEL_ID: &str = "google/gemini-3.8-flash";
+
 /// The model that the LLM agent uses now. Administrators change it with `/change-model`.
 pub struct ActiveModel {
     selection: RwLock<ModelSelection>,

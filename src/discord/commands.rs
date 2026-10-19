@@ -1,4 +1,6 @@
-use serenity::all::{CommandInteraction, CommandOptionType, Permissions, ResolvedValue};
+use serenity::all::{
+    CommandInteraction, CommandOptionType, InteractionContext, Permissions, ResolvedValue,
+};
 use serenity::builder::{
     CreateAutocompleteResponse, CreateCommand, CreateCommandOption, CreateInteractionResponse,
     CreateInteractionResponseMessage,
@@ -43,6 +45,9 @@ pub fn change_model_command() -> CreateCommand {
         .description("Change the LLM model of Nuki")
         .add_option(model)
         .default_member_permissions(Permissions::ADMINISTRATOR)
+        // A global command is also in the DMs with the bot, where Discord does not apply
+        // `default_member_permissions`.
+        .contexts(vec![InteractionContext::Guild])
 }
 
 /// Answers the autocomplete of the `model` option with the OpenRouter models that match the text.
@@ -273,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn change_model_command_has_the_option_and_the_admin_permission() {
+    fn change_model_command_has_the_option_the_admin_permission_and_only_the_guild_context() {
         assert_eq!(
             serde_json::to_value(change_model_command()).unwrap(),
             json!({
@@ -296,6 +301,7 @@ mod tests {
                     "autocomplete": true
                 }],
                 "default_member_permissions": "8",
+                "contexts": [0],
                 "nsfw": false
             })
         );

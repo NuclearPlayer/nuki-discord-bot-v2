@@ -1,18 +1,18 @@
 //! The Serenity event handler.
 
-use std::sync::Arc;
-
+use anyhow::bail;
 use serenity::client::{Context, EventHandler};
-use serenity::model::application::Interaction;
+use serenity::model::application::{Command, Interaction};
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
-use serenity::model::id::UserId;
+use serenity::model::id::{GuildId, UserId};
+use tokio::sync::OnceCell;
 
-use crate::app::App;
+use crate::config::Config;
 use crate::discord::commands::{self, CHANGE_MODEL_COMMAND, change_model_command};
 use crate::discord::history::is_system;
-use crate::routing::debounce::Debouncer;
 use crate::routing::trigger::{MessageFacts, trigger_of};
+use crate::services::Services;
 
 pub fn facts_of(message: &Message, nuki_user_id: u64, in_open_intake_thread: bool) -> MessageFacts {
     let nuki = UserId::new(nuki_user_id);
@@ -29,39 +29,80 @@ pub fn facts_of(message: &Message, nuki_user_id: u64, in_open_intake_thread: boo
     }
 }
 
+/// The server of the bot: the one server in `guilds`.
+pub fn sole_guild(guilds: impl IntoIterator<Item = GuildId>) -> anyhow::Result<GuildId> {
+    let guilds: Vec<GuildId> = guilds.into_iter().collect();
+    match guilds.as_slice() {
+        [guild] => Ok(*guild),
+        _ => bail!(
+            "the bot is in {} servers, but it must be in exactly one",
+            guilds.len()
+        ),
+    }
+}
+
+/// Starts the services at the first `ready`. Until then, it drops the messages and the
+/// interactions.
 pub struct Handler {
-    pub app: Arc<App>,
-    pub debouncer: Debouncer<Message>,
+    config: Config,
+    services: OnceCell<Services>,
+}
+
+impl Handler {
+    pub fn new(config: Config) -> Handler {
+        Handler {
+            config,
+            services: OnceCell::new(),
+        }
+    }
+
+    async fn start(&self, ready: &Ready) -> anyhow::Result<Services> {
+        let guild_id = sole_guild(ready.guilds.iter().map(|guild| guild.id))?;
+        Services::start(self.config.clone(), guild_id).await
+    }
+}
+
+/// Registers `/change-model` as a global command. The HTTP client of the gateway knows the
+/// application ID, which the command routes need.
+async fn register_commands(ctx: &Context) {
+    let registered = Command::set_global_commands(&ctx.http, vec![change_model_command()]).await;
+    if let Err(error) = registered {
+        tracing::error!("could not register /{CHANGE_MODEL_COMMAND}: {error}");
+    }
 }
 
 #[serenity::async_trait]
 impl EventHandler for Handler {
+    /// `ready` fires again after a reconnect. The services start only once.
     async fn ready(&self, ctx: Context, ready: Ready) {
         tracing::info!(name = ready.user.name, "connected to Discord");
-        // The HTTP client of the gateway knows the application ID, which the command routes need.
-        let registered = self
-            .app
-            .guild_id
-            .set_commands(&ctx.http, vec![change_model_command()])
-            .await;
-        if let Err(error) = registered {
-            tracing::error!("could not register /{CHANGE_MODEL_COMMAND}: {error}");
+        register_commands(&ctx).await;
+        let started = self.services.get_or_try_init(|| self.start(&ready)).await;
+        if let Err(error) = started {
+            tracing::error!("could not start the services: {error:#}");
+            std::process::exit(1);
         }
     }
 
     /// Debounces each message that has a trigger. The pipeline looks up the intake of the
     /// channel, so this filter does not need it: every message that it drops has no trigger.
     async fn message(&self, _ctx: Context, message: Message) {
-        let facts = facts_of(&message, self.app.nuki.user_id, false);
+        let Some(services) = self.services.get() else {
+            return;
+        };
+        let facts = facts_of(&message, services.app.nuki.user_id, false);
         if trigger_of(&facts).is_none() {
             return;
         }
         let key = (message.channel_id.get(), message.author.id.get());
-        self.debouncer.push(key, message);
+        services.debouncer.push(key, message);
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        let app = &self.app;
+        let Some(services) = self.services.get() else {
+            return;
+        };
+        let app = &services.app;
         let answered = match &interaction {
             Interaction::Command(command) if command.data.name == CHANGE_MODEL_COMMAND => {
                 commands::execute(&ctx.http, command, &app.models, &app.active_model).await
@@ -179,6 +220,38 @@ mod tests {
                 mentions_nuki: false,
                 replies_to_nuki: false,
             }
+        );
+    }
+
+    #[test]
+    fn sole_guild_is_the_one_server() {
+        let guild = GuildId::new(1300000000000000001);
+
+        assert_eq!(sole_guild([guild]).unwrap(), guild);
+    }
+
+    #[test]
+    fn sole_guild_fails_without_a_server() {
+        let error = sole_guild([]).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "the bot is in 0 servers, but it must be in exactly one"
+        );
+    }
+
+    #[test]
+    fn sole_guild_fails_with_two_servers() {
+        let guilds = [
+            GuildId::new(1300000000000000001),
+            GuildId::new(1300000000000000002),
+        ];
+
+        let error = sole_guild(guilds).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "the bot is in 2 servers, but it must be in exactly one"
         );
     }
 

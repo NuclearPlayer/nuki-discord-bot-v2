@@ -8,8 +8,9 @@ The bot is one crate, `nuki`. `src/main.rs` only calls `nuki::run()` in `src/lib
 
 | Module | Responsibility |
 |---|---|
-| `src/lib.rs` | `run()`: loads the configuration, builds the services, starts the background tasks and the Discord client. |
+| `src/lib.rs` | `run()`: loads the configuration and starts the Discord client. |
 | `src/app.rs` | `App`: builds and holds the services that the handler and the background tasks share. |
+| `src/services.rs` | `Services`: builds the `App` for the server of the bot, and starts the debouncer, the unit reader, and the background tasks. The handler starts it once, at the first `ready` event. |
 | `src/config.rs` | The typed `Config` from the environment variables, and the load of `.env`. |
 | `src/logging.rs` | The `tracing` subscriber, filtered by `RUST_LOG`. |
 | `src/tasks.rs` | The background tasks: the periodic `git fetch` and the intake timeout. |
@@ -23,7 +24,7 @@ The bot is one crate, `nuki`. `src/main.rs` only calls `nuki::run()` in `src/lib
 | `src/repos/` | The repository catalog, the clone and fetch manager, the `git` CLI wrapper, and the read operations on the clones. |
 | `src/github/` | The read-only GitHub client: REST for releases and pull requests, GraphQL for Discussions. |
 | `src/store/` | SQLite: the stored tool turns, the intake records, and the settings. |
-| `src/admin/` | The report embeds for the reports channel, and the error messages for the admin log channel. |
+| `src/admin/` | The report embeds and the error messages for the admin log channel. |
 | `src/test_support.rs` | Test helpers that more than one module uses, for example `json_response` for `wiremock`. |
 
 `migrations/` contains the SQL migrations. `tests/fixtures/` contains the recorded API responses that the tests load with `include_str!`.

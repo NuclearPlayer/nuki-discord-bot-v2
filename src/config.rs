@@ -2,16 +2,12 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Config {
     pub discord_token: String,
-    pub discord_guild_id: u64,
     pub openrouter_api_key: String,
     pub github_token: String,
-    pub reports_channel_id: u64,
     pub admin_log_channel_id: u64,
-    #[serde(default = "default_llm_model")]
-    pub llm_model: String,
     #[serde(default = "default_context_messages")]
     pub context_messages: usize,
     #[serde(default = "default_chat_cooldown_minutes")]
@@ -34,10 +30,6 @@ pub struct Config {
     pub debounce_seconds: u64,
     #[serde(default = "default_data_dir")]
     pub data_dir: PathBuf,
-}
-
-fn default_llm_model() -> String {
-    "google/gemini-3.8-flash".to_string()
 }
 
 fn default_context_messages() -> usize {
@@ -99,12 +91,10 @@ pub fn load_dotenv() -> Result<(), dotenvy::Error> {
 mod tests {
     use super::*;
 
-    const REQUIRED: [(&str, &str); 6] = [
+    const REQUIRED: [(&str, &str); 4] = [
         ("DISCORD_TOKEN", "discord-token"),
-        ("DISCORD_GUILD_ID", "1001"),
         ("OPENROUTER_API_KEY", "openrouter-key"),
         ("GITHUB_TOKEN", "github-token"),
-        ("REPORTS_CHANNEL_ID", "2002"),
         ("ADMIN_LOG_CHANNEL_ID", "3003"),
     ];
 
@@ -116,12 +106,9 @@ mod tests {
             config,
             Config {
                 discord_token: "discord-token".to_string(),
-                discord_guild_id: 1001,
                 openrouter_api_key: "openrouter-key".to_string(),
                 github_token: "github-token".to_string(),
-                reports_channel_id: 2002,
                 admin_log_channel_id: 3003,
-                llm_model: "google/gemini-3.8-flash".to_string(),
                 context_messages: 15,
                 chat_cooldown_minutes: 15,
                 threshold_help: 0.7,
@@ -140,7 +127,6 @@ mod tests {
     #[test]
     fn from_pairs_reads_values_that_override_the_defaults() {
         let overrides = [
-            ("LLM_MODEL", "anthropic/claude-haiku"),
             ("CONTEXT_MESSAGES", "30"),
             ("CHAT_COOLDOWN_MINUTES", "5"),
             ("THRESHOLD_HELP", "0.1"),
@@ -160,12 +146,9 @@ mod tests {
             config,
             Config {
                 discord_token: "discord-token".to_string(),
-                discord_guild_id: 1001,
                 openrouter_api_key: "openrouter-key".to_string(),
                 github_token: "github-token".to_string(),
-                reports_channel_id: 2002,
                 admin_log_channel_id: 3003,
-                llm_model: "anthropic/claude-haiku".to_string(),
                 context_messages: 30,
                 chat_cooldown_minutes: 5,
                 threshold_help: 0.1,

@@ -12,7 +12,7 @@ use crate::github::client::GitHubClient;
 use crate::github::types::OrgRepo;
 use crate::llm::agent::{LlmClient, OPENROUTER_BASE_URL};
 use crate::llm::models_list::ModelsClient;
-use crate::llm::selection::ActiveModel;
+use crate::llm::selection::{ActiveModel, DEFAULT_MODEL_ID};
 use crate::repos::catalog::{CatalogEntry, NUCLEAR_REPO, RepoCatalog, RepoId};
 use crate::repos::manager::RepoManager;
 use crate::routing::classify::Classifier;
@@ -61,7 +61,7 @@ pub struct App {
 }
 
 impl App {
-    pub async fn build(config: Config) -> anyhow::Result<Arc<App>> {
+    pub async fn build(config: Config, guild_id: GuildId) -> anyhow::Result<Arc<App>> {
         let store = open_store(&config).await?;
 
         let github = Arc::new(GitHubClient::new(
@@ -91,14 +91,13 @@ impl App {
             user_id: current_user.id.get(),
             name: current_user.display_name().to_string(),
         };
-        let guild_id = GuildId::new(config.discord_guild_id);
 
         let llm = Arc::new(LlmClient::new(
             &config.openrouter_api_key,
             OPENROUTER_BASE_URL,
         ));
         let models = ModelsClient::new(OPENROUTER_URL.to_string());
-        let active_model = Arc::new(ActiveModel::load(store.settings(), &config.llm_model).await?);
+        let active_model = Arc::new(ActiveModel::load(store.settings(), DEFAULT_MODEL_ID).await?);
 
         let rest = reqwest::Client::new();
         let discord_ops = DiscordOps {
@@ -106,7 +105,7 @@ impl App {
             rest: rest.clone(),
             api_base: DISCORD_API_BASE.to_string(),
             bot_token: config.discord_token.clone(),
-            guild_id: config.discord_guild_id,
+            guild_id: guild_id.get(),
         };
         let sandbox = Arc::new(Sandbox::new(
             Arc::new(full_table(discord_ops, Arc::clone(&repos), github)),

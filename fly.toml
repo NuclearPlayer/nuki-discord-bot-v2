@@ -1,0 +1,14 @@
+app = "nuki-discord-bot-v2"
+primary_region = "fra"
+
+[env]
+DATA_DIR = "/data"
+RUST_LOG = "info"
+
+[mounts]
+source = "nuki_data"
+destination = "/data"
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "512mb"

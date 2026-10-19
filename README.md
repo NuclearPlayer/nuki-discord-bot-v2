@@ -64,6 +64,29 @@ cargo test --locked
 
 The tests use no network and no live API.
 
+## Deployment
+
+The bot runs on exactly one Fly.io machine in the `fra` region. Do not start a second machine: two bots connect to Discord with the same token and reply to each message two times. `fly.toml` contains the configuration of the app.
+
+The machine has the 1 GB volume `nuki_data` at `/data`. The volume holds the SQLite file and the clones. `fly.toml` sets `DATA_DIR=/data` and `RUST_LOG=info`.
+
+The `Dockerfile` compiles the release build in a `rust:1-trixie` stage, and copies the `nuki` binary into a `debian:trixie-slim` stage with `git` and the CA certificates. The prompts are in the binary, thus the image does not contain `prompts/`.
+
+The six mandatory variables are Fly secrets. Set them with `fly secrets set`:
+
+```sh
+fly secrets set DISCORD_TOKEN=... DISCORD_GUILD_ID=... OPENROUTER_API_KEY=... \
+  GITHUB_TOKEN=... REPORTS_CHANNEL_ID=... ADMIN_LOG_CHANNEL_ID=...
+```
+
+A push to `master` deploys the bot after CI passes. To deploy by hand, run:
+
+```sh
+fly deploy --ha=false
+```
+
+Always use `--ha=false`. Without it, Fly makes two machines on the first deploy of an app.
+
 ## Prompts
 
 All prompts are Markdown files in `prompts/`:

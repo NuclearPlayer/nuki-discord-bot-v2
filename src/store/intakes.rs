@@ -1,11 +1,13 @@
 use chrono::{DateTime, Utc};
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
 use rusqlite::{OptionalExtension, Row, ToSql};
+use serde::Serialize;
 use tokio_rusqlite::Connection;
 
 use super::{Result, call, timestamp_column, timestamp_text};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum IntakeKind {
     Bug,
     Feature,

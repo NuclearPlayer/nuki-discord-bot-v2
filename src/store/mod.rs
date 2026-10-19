@@ -1,3 +1,4 @@
+pub mod events;
 pub mod intakes;
 pub mod settings;
 #[cfg(test)]
@@ -13,6 +14,7 @@ use rusqlite_migration::{M, Migrations};
 use thiserror::Error;
 use tokio_rusqlite::Connection;
 
+use events::EventStore;
 use intakes::IntakeStore;
 use settings::SettingsStore;
 use tool_turns::ToolTurnStore;
@@ -47,9 +49,12 @@ impl Store {
 
     async fn migrated(conn: Connection) -> Result<Self> {
         call(&conn, |c| {
-            Migrations::new(vec![M::up(include_str!("../../migrations/001_init.sql"))])
-                .to_latest(c)
-                .map_err(StoreError::from)
+            Migrations::new(vec![
+                M::up(include_str!("../../migrations/001_init.sql")),
+                M::up(include_str!("../../migrations/002_events.sql")),
+            ])
+            .to_latest(c)
+            .map_err(StoreError::from)
         })
         .await?;
         Ok(Self { conn })
@@ -65,6 +70,10 @@ impl Store {
 
     pub fn tool_turns(&self) -> ToolTurnStore {
         ToolTurnStore::new(self.conn.clone())
+    }
+
+    pub fn events(&self) -> EventStore {
+        EventStore::new(self.conn.clone())
     }
 }
 

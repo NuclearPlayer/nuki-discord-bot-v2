@@ -21,6 +21,7 @@ use crate::routing::dispatch::Thresholds;
 use crate::sandbox::ops::discord::DiscordOps;
 use crate::sandbox::ops::full_table;
 use crate::sandbox::runtime::{Sandbox, SandboxLimits};
+use crate::stats::recorder::Stats;
 use crate::store::Store;
 use crate::workflows::WorkflowDeps;
 use crate::workflows::chat::ChatWorkflow;
@@ -46,6 +47,7 @@ pub struct App {
     pub http: Arc<Http>,
     pub nuki: BotIdentity,
     pub store: Store,
+    pub stats: Stats,
     pub active_model: Arc<ActiveModel>,
     pub models: ModelsClient,
     pub classifier: Classifier,
@@ -112,6 +114,7 @@ impl App {
 
         Ok(Arc::new(App {
             nuki,
+            stats: Stats::new(store.events()),
             store,
             active_model,
             models,

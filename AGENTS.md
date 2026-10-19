@@ -22,7 +22,8 @@ The bot is one crate, `nuki`. `src/main.rs` only calls `nuki::run()` in `src/lib
 | `src/sandbox/` | The QuickJS runtime, the operation table, the TypeScript declarations, and the operations in `ops/`. |
 | `src/repos/` | The repository catalog, the clone and fetch manager, the `git` CLI wrapper, and the read operations on the clones. |
 | `src/github/` | The read-only GitHub client: REST for releases and pull requests, GraphQL for Discussions. |
-| `src/store/` | SQLite: the stored tool turns, the intake records, and the settings. |
+| `src/stats/` | The usage event kinds, and the recorder that writes them to the `events` table for each run. |
+| `src/store/` | SQLite: the stored tool turns, the intake records, the settings, and the usage events. |
 | `src/admin/` | The report embeds and the error messages for the admin log channel. |
 | `src/test_support.rs` | Test helpers that more than one module uses, for example `json_response` for `wiremock`. |
 

@@ -10,6 +10,7 @@ pub mod prompts;
 pub mod repos;
 pub mod routing;
 pub mod sandbox;
+pub mod stats;
 pub mod store;
 pub mod tasks;
 #[cfg(test)]

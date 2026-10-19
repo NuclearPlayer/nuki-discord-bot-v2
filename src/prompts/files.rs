@@ -12,3 +12,5 @@ pub const DECISION_CATEGORY: &str = include_str!("../../prompts/decisions/catego
 pub const DECISION_HELP_QUALITY: &str = include_str!("../../prompts/decisions/help-quality.md");
 pub const DECISION_BUG_FIELDS: &str = include_str!("../../prompts/decisions/bug-fields.md");
 pub const DECISION_FEATURE_FIELDS: &str = include_str!("../../prompts/decisions/feature-fields.md");
+
+pub const TOOL_RUN_SCRIPT: &str = include_str!("../../prompts/tools/run-script.md");

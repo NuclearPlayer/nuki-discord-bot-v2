@@ -10,11 +10,10 @@ use serenity::model::id::GuildId;
 use thiserror::Error;
 
 use crate::llm::models_list::{ModelChoice, ModelsClient, ModelsError, choices};
-use crate::llm::selection::ActiveModel;
+use crate::llm::selection::{ActiveModel, listed_selection};
 use crate::stats::event::{Event, ModelChanged};
 use crate::stats::recorder::{EventScope, Stats};
 use crate::store::StoreError;
-use crate::store::settings::ModelSelection;
 
 pub const CHANGE_MODEL_COMMAND: &str = "change-model";
 const MODEL_OPTION: &str = "model";
@@ -137,18 +136,12 @@ async fn change_model(
     active: &ActiveModel,
     model_id: &str,
 ) -> Result<Option<String>, ChangeError> {
-    let listed = models.list().await?;
-    let Some(model) = listed.into_iter().find(|model| model.id == model_id) else {
+    let Some(selection) = listed_selection(models, model_id).await? else {
         return Ok(None);
     };
 
     let previous = active.current().model_id;
-    active
-        .set(ModelSelection {
-            model_id: model.id,
-            input_modalities: model.input_modalities,
-        })
-        .await?;
+    active.set(selection).await?;
     Ok(Some(previous))
 }
 
@@ -189,14 +182,14 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
+    use crate::llm::test_support::mount_models;
     use crate::stats::test_support::{RunEvent, events_between};
     use crate::store::Store;
     use crate::store::test_support::selection;
-    use crate::test_support::{discord_http, json_response};
+    use crate::test_support::discord_http;
 
     const INTERACTION: &str =
         include_str!("../../tests/fixtures/discord/command_change_model.json");
-    const MODELS: &str = include_str!("../../tests/fixtures/llm/models.json");
     const CALLBACK_PATH: &str =
         "/api/v10/interactions/1800000000000000001/interaction-token/callback";
 
@@ -213,11 +206,7 @@ mod tests {
     impl Fixture {
         async fn start() -> Fixture {
             let openrouter = MockServer::start().await;
-            Mock::given(method("GET"))
-                .and(path("/api/v1/models"))
-                .respond_with(json_response(200, MODELS))
-                .mount(&openrouter)
-                .await;
+            mount_models(&openrouter).await;
             let discord = MockServer::start().await;
             Mock::given(method("POST"))
                 .and(path(CALLBACK_PATH))
@@ -226,11 +215,12 @@ mod tests {
                 .await;
             let http = discord_http(&discord);
             let store = Store::open_in_memory().await.unwrap();
-            let active = ActiveModel::load(store.settings(), "google/gemini-3.8-flash")
+            let models = ModelsClient::new(openrouter.uri());
+            let active = ActiveModel::load(store.settings(), &models, "google/gemini-3.8-flash")
                 .await
                 .unwrap();
             Fixture {
-                models: ModelsClient::new(openrouter.uri()),
+                models,
                 _openrouter: openrouter,
                 discord,
                 http,
@@ -329,7 +319,10 @@ mod tests {
         );
         assert_eq!(
             fixture.active.current(),
-            selection("google/gemini-3.8-flash", &["text", "image"])
+            selection(
+                "google/gemini-3.8-flash",
+                &["text", "image", "file", "audio"]
+            )
         );
     }
 

@@ -16,6 +16,16 @@ pub(crate) const RIG_EXTRACTION_PREAMBLE: &str = "You are an AI assistant whose 
     Be sure to fill out every field and ALWAYS CALL THE `submit` function, even with default values!!!.\n                \n\n\
     =============== ADDITIONAL INSTRUCTIONS ===============\n";
 
+pub(crate) const MODELS: &str = include_str!("../../tests/fixtures/llm/models.json");
+
+pub(crate) async fn mount_models(server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/api/v1/models"))
+        .respond_with(json_response(200, MODELS))
+        .mount(server)
+        .await;
+}
+
 pub(crate) async fn mount_llm_replies(server: &MockServer, replies: &[&str]) {
     for body in replies {
         Mock::given(method("POST"))

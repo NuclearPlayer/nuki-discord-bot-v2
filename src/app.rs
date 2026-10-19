@@ -99,7 +99,8 @@ impl App {
             OPENROUTER_BASE_URL,
         ));
         let models = ModelsClient::new(OPENROUTER_URL.to_string());
-        let active_model = Arc::new(ActiveModel::load(store.settings(), DEFAULT_MODEL_ID).await?);
+        let active_model =
+            Arc::new(ActiveModel::load(store.settings(), &models, DEFAULT_MODEL_ID).await?);
 
         let jev = Arc::new(JevClient::new(
             config.openrouter_api_key.clone(),

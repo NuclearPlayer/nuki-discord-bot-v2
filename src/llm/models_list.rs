@@ -152,6 +152,7 @@ mod tests {
     use wiremock::{Mock, MockServer};
 
     use super::*;
+    use crate::llm::test_support::MODELS;
     use crate::test_support::json_response;
 
     fn model(id: &str, name: &str) -> ModelInfo {
@@ -261,10 +262,7 @@ mod tests {
             .and(path("/api/v1/models"))
             .and(query_param("sort", "top-weekly"))
             .and(query_param("supported_parameters", "tools"))
-            .respond_with(json_response(
-                200,
-                include_str!("../../tests/fixtures/llm/models.json"),
-            ))
+            .respond_with(json_response(200, MODELS))
             .mount(&server)
             .await;
 

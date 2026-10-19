@@ -1,9 +1,9 @@
-FROM rust:1-trixie AS build
+FROM rust:1 AS build
 WORKDIR /app
 COPY . .
 RUN cargo build --release --locked
 
-FROM debian:trixie-slim
+FROM debian:stable-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*

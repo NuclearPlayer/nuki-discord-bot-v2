@@ -70,7 +70,7 @@ The bot runs on exactly one Fly.io machine in the `fra` region. Do not start a s
 
 The machine has the 1 GB volume `nuki_data` at `/data`. The volume holds the SQLite file and the clones. `fly.toml` sets `DATA_DIR=/data` and `RUST_LOG=info`.
 
-The `Dockerfile` compiles the release build in a `rust:1-trixie` stage, and copies the `nuki` binary into a `debian:trixie-slim` stage with `git` and the CA certificates. The prompts are in the binary, thus the image does not contain `prompts/`.
+The `Dockerfile` compiles the release build in a `rust:1` stage, and copies the `nuki` binary into a `debian:stable-slim` stage with `git` and the CA certificates. The prompts are in the binary, thus the image does not contain `prompts/`.
 
 The six mandatory variables are Fly secrets. Set them with `fly secrets set`:
 

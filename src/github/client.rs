@@ -159,12 +159,11 @@ mod tests {
     use chrono::{DateTime, Utc};
     use serde_json::json;
     use wiremock::matchers::{body_json, header, method, path, query_param};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::{Mock, MockServer};
 
     use super::*;
-    use crate::github::test_support::{
-        DISCUSSIONS, PULL_REQUESTS, RELEASES, client_for, json_response,
-    };
+    use crate::github::test_support::{DISCUSSIONS, PULL_REQUESTS, RELEASES, client_for};
+    use crate::test_support::json_response;
 
     fn time(text: &str) -> DateTime<Utc> {
         text.parse().unwrap()
@@ -177,9 +176,10 @@ mod tests {
             .and(path("/orgs/NuclearPlayer/repos"))
             .and(query_param("per_page", "100"))
             .and(query_param("type", "public"))
-            .respond_with(json_response(include_str!(
-                "../../tests/fixtures/github/org_repos.json"
-            )))
+            .respond_with(json_response(
+                200,
+                include_str!("../../tests/fixtures/github/org_repos.json"),
+            ))
             .mount(&server)
             .await;
 
@@ -215,7 +215,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/repos/nukeop/nuclear/releases"))
             .and(query_param("per_page", "2"))
-            .respond_with(json_response(RELEASES))
+            .respond_with(json_response(200, RELEASES))
             .mount(&server)
             .await;
 
@@ -260,7 +260,7 @@ mod tests {
             .and(path("/search/issues"))
             .and(query_param("q", "repo:nukeop/nuclear is:pr playlists"))
             .and(query_param("per_page", "2"))
-            .respond_with(json_response(PULL_REQUESTS))
+            .respond_with(json_response(200, PULL_REQUESTS))
             .expect(1)
             .mount(&server)
             .await;
@@ -276,7 +276,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/search/issues"))
-            .respond_with(json_response(PULL_REQUESTS))
+            .respond_with(json_response(200, PULL_REQUESTS))
             .mount(&server)
             .await;
 
@@ -320,7 +320,7 @@ mod tests {
                     "first": 2,
                 },
             })))
-            .respond_with(json_response(DISCUSSIONS))
+            .respond_with(json_response(200, DISCUSSIONS))
             .expect(1)
             .mount(&server)
             .await;
@@ -336,7 +336,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/graphql"))
-            .respond_with(json_response(DISCUSSIONS))
+            .respond_with(json_response(200, DISCUSSIONS))
             .mount(&server)
             .await;
 
@@ -376,9 +376,10 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/graphql"))
-            .respond_with(json_response(include_str!(
-                "../../tests/fixtures/github/graphql_error.json"
-            )))
+            .respond_with(json_response(
+                200,
+                include_str!("../../tests/fixtures/github/graphql_error.json"),
+            ))
             .mount(&server)
             .await;
 
@@ -401,9 +402,9 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/repos/nukeop/nuclear/releases"))
-            .respond_with(ResponseTemplate::new(403).set_body_raw(
+            .respond_with(json_response(
+                403,
                 r#"{"message":"API rate limit exceeded"}"#,
-                "application/json",
             ))
             .mount(&server)
             .await;
@@ -431,12 +432,12 @@ mod tests {
                 .and(header("user-agent", "nuki-discord-bot"))
         };
         with_headers(Mock::given(method("GET")).and(path("/repos/nukeop/nuclear/releases")))
-            .respond_with(json_response(RELEASES))
+            .respond_with(json_response(200, RELEASES))
             .expect(1)
             .mount(&server)
             .await;
         with_headers(Mock::given(method("POST")).and(path("/graphql")))
-            .respond_with(json_response(DISCUSSIONS))
+            .respond_with(json_response(200, DISCUSSIONS))
             .expect(1)
             .mount(&server)
             .await;

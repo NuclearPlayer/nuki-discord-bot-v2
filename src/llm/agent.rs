@@ -156,33 +156,23 @@ impl From<StructuredOutputError> for LlmError {
 mod tests {
     use rig_core::message::{ToolCall, ToolResult, ToolResultContent, UserContent};
     use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::{Mock, MockServer};
 
     use serde::Deserialize;
     use serde_json::json;
 
     use super::*;
     use crate::sandbox::declarations::tool_description;
-    use crate::sandbox::operation::{Operation, OperationTable};
     use crate::sandbox::runtime::SandboxLimits;
+    use crate::sandbox::test_support::echo_table;
+    use crate::test_support::json_response;
 
     const FINAL_TEXT: &str = include_str!("../../tests/fixtures/llm/final_text.json");
     const RUN_SCRIPT_CALL: &str = include_str!("../../tests/fixtures/llm/run_script_call.json");
 
-    fn test_table() -> OperationTable {
-        OperationTable::new(vec![Operation::typed(
-            "test",
-            "echo",
-            "Returns its parameters.",
-            vec![],
-            "unknown",
-            |params: Value| async { Ok::<_, String>(params) },
-        )])
-    }
-
     fn sandbox() -> Arc<Sandbox> {
         Arc::new(Sandbox::new(
-            Arc::new(test_table()),
+            Arc::new(echo_table()),
             SandboxLimits::production(),
         ))
     }
@@ -204,16 +194,12 @@ mod tests {
         }
     }
 
-    fn reply(body: &str) -> ResponseTemplate {
-        ResponseTemplate::new(200).set_body_raw(body.to_string(), "application/json")
-    }
-
     async fn chat_server(replies: &[&str]) -> MockServer {
         let server = MockServer::start().await;
         for body in replies {
             Mock::given(method("POST"))
                 .and(path("/chat/completions"))
-                .respond_with(reply(body))
+                .respond_with(json_response(200, body))
                 .up_to_n_times(1)
                 .mount(&server)
                 .await;
@@ -339,7 +325,7 @@ mod tests {
                 "type": "function",
                 "function": {
                     "name": "run_script",
-                    "description": tool_description(&test_table()),
+                    "description": tool_description(&echo_table()),
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -360,7 +346,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(reply(RUN_SCRIPT_CALL))
+            .respond_with(json_response(200, RUN_SCRIPT_CALL))
             .expect(11)
             .mount(&server)
             .await;

@@ -44,58 +44,54 @@ fn default_limit() -> u32 {
 
 pub fn github_table(client: Arc<GitHubClient>) -> OperationTable {
     OperationTable::new(vec![
-        list_releases(Arc::clone(&client)),
-        search_pull_requests(Arc::clone(&client)),
-        search_discussions(client),
+        list_releases(&client),
+        search_pull_requests(&client),
+        search_discussions(&client),
     ])
 }
 
-fn list_releases(client: Arc<GitHubClient>) -> Operation {
-    Operation::typed(
+fn list_releases(client: &Arc<GitHubClient>) -> Operation {
+    Operation::with_handle(
+        client,
         NAMESPACE,
         "listReleases",
         "Get the releases, with their notes and their dates.",
         vec![repo_param(), limit_param()],
         RELEASES_TYPE,
-        move |params: ListReleasesParams| {
-            let client = Arc::clone(&client);
-            async move { client.list_releases(&params.repo, params.limit).await }
+        |client, params: ListReleasesParams| async move {
+            client.list_releases(&params.repo, params.limit).await
         },
     )
 }
 
-fn search_pull_requests(client: Arc<GitHubClient>) -> Operation {
-    Operation::typed(
+fn search_pull_requests(client: &Arc<GitHubClient>) -> Operation {
+    Operation::with_handle(
+        client,
         NAMESPACE,
         "searchPullRequests",
         "Get the pull requests that match a query.",
         vec![query_param(), repo_param(), limit_param()],
         PULL_REQUESTS_TYPE,
-        move |params: SearchParams| {
-            let client = Arc::clone(&client);
-            async move {
-                client
-                    .search_pull_requests(&params.repo, &params.query, params.limit)
-                    .await
-            }
+        |client, params: SearchParams| async move {
+            client
+                .search_pull_requests(&params.repo, &params.query, params.limit)
+                .await
         },
     )
 }
 
-fn search_discussions(client: Arc<GitHubClient>) -> Operation {
-    Operation::typed(
+fn search_discussions(client: &Arc<GitHubClient>) -> Operation {
+    Operation::with_handle(
+        client,
         NAMESPACE,
         "searchDiscussions",
         "Get the Discussions that match a query.",
         vec![query_param(), repo_param(), limit_param()],
         DISCUSSIONS_TYPE,
-        move |params: SearchParams| {
-            let client = Arc::clone(&client);
-            async move {
-                client
-                    .search_discussions(&params.repo, &params.query, params.limit)
-                    .await
-            }
+        |client, params: SearchParams| async move {
+            client
+                .search_discussions(&params.repo, &params.query, params.limit)
+                .await
         },
     )
 }
@@ -129,15 +125,17 @@ fn limit_param() -> Param {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{Value, json};
+    use serde_json::json;
     use wiremock::matchers::{body_partial_json, method, path, query_param};
     use wiremock::{Mock, MockServer};
 
     use super::*;
     use crate::github::test_support::{
-        DISCUSSIONS, PLUGIN_REGISTRY_PULL_REQUESTS, RELEASES, client_for, json_response,
+        DISCUSSIONS, PLUGIN_REGISTRY_PULL_REQUESTS, RELEASES, client_for,
     };
     use crate::sandbox::runtime::{Sandbox, SandboxLimits, ScriptOutcome};
+    use crate::sandbox::test_support::value;
+    use crate::test_support::json_response;
 
     async fn run(server: &MockServer, code: &str) -> ScriptOutcome {
         let table = github_table(Arc::new(client_for(server)));
@@ -146,21 +144,13 @@ mod tests {
             .await
     }
 
-    fn value(expected: Value) -> ScriptOutcome {
-        ScriptOutcome {
-            value: Some(expected),
-            logs: vec![],
-            error: None,
-        }
-    }
-
     #[tokio::test]
     async fn scripts_can_list_releases_with_the_default_repository() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/repos/nukeop/nuclear/releases"))
             .and(query_param("per_page", "10"))
-            .respond_with(json_response(RELEASES))
+            .respond_with(json_response(200, RELEASES))
             .mount(&server)
             .await;
 
@@ -197,7 +187,7 @@ mod tests {
                 "repo:NuclearPlayer/plugin-registry is:pr playlists",
             ))
             .and(query_param("per_page", "2"))
-            .respond_with(json_response(PLUGIN_REGISTRY_PULL_REQUESTS))
+            .respond_with(json_response(200, PLUGIN_REGISTRY_PULL_REQUESTS))
             .mount(&server)
             .await;
 
@@ -238,7 +228,7 @@ mod tests {
             .and(body_partial_json(json!({
                 "variables": { "query": "repo:nukeop/nuclear previous button", "first": 10 },
             })))
-            .respond_with(json_response(DISCUSSIONS))
+            .respond_with(json_response(200, DISCUSSIONS))
             .mount(&server)
             .await;
 

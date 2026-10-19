@@ -300,17 +300,11 @@ mod tests {
 
     use super::*;
     use crate::sandbox::operation::Operation;
+    use crate::sandbox::test_support::{echo_operation, value};
 
     fn test_table() -> OperationTable {
         OperationTable::new(vec![
-            Operation::typed(
-                "test",
-                "echo",
-                "Returns its parameters.",
-                vec![],
-                "unknown",
-                |params: Value| async { Ok::<_, String>(params) },
-            ),
+            echo_operation(),
             Operation::typed(
                 "test",
                 "fail",
@@ -355,14 +349,6 @@ mod tests {
         tokio::spawn(async move { sandbox.run(&code).await })
             .await
             .unwrap()
-    }
-
-    fn value(expected: Value) -> ScriptOutcome {
-        ScriptOutcome {
-            value: Some(expected),
-            logs: vec![],
-            error: None,
-        }
     }
 
     fn timed_out() -> ScriptOutcome {

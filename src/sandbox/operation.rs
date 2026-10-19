@@ -62,6 +62,35 @@ impl Operation {
             handler,
         }
     }
+
+    /// Makes a typed operation whose function gets its own clone of `handle` on each call.
+    pub fn with_handle<H, P, R, E, F, Fut>(
+        handle: &Arc<H>,
+        namespace: &'static str,
+        name: &'static str,
+        description: &'static str,
+        params: Vec<Param>,
+        returns: &'static str,
+        f: F,
+    ) -> Self
+    where
+        H: Send + Sync + 'static,
+        P: DeserializeOwned,
+        R: Serialize + 'static,
+        E: Display + 'static,
+        F: Fn(Arc<H>, P) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<R, E>> + Send + 'static,
+    {
+        let handle = Arc::clone(handle);
+        Self::typed(
+            namespace,
+            name,
+            description,
+            params,
+            returns,
+            move |params| f(Arc::clone(&handle), params),
+        )
+    }
 }
 
 async fn call<R: Serialize, E: Display>(

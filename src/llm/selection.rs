@@ -51,13 +51,7 @@ fn default_selection(model_id: &str) -> ModelSelection {
 mod tests {
     use super::*;
     use crate::store::Store;
-
-    fn selection(model_id: &str, input_modalities: &[&str]) -> ModelSelection {
-        ModelSelection {
-            model_id: model_id.to_string(),
-            input_modalities: input_modalities.iter().map(|m| m.to_string()).collect(),
-        }
-    }
+    use crate::store::test_support::selection;
 
     async fn settings() -> SettingsStore {
         Store::open_in_memory().await.unwrap().settings()

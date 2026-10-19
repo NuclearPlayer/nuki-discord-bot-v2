@@ -88,6 +88,7 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
+    use crate::test_support::json_response;
 
     const RESPONSE: &str = include_str!("../../tests/fixtures/decisions/response.json");
 
@@ -111,10 +112,6 @@ mod tests {
                 instructions: "Does the conversation state the Nuclear version?".to_string(),
             },
         }
-    }
-
-    fn json_response(status: u16, body: &str) -> ResponseTemplate {
-        ResponseTemplate::new(status).set_body_raw(body, "application/json")
     }
 
     async fn server_responding_with(response: ResponseTemplate) -> MockServer {

@@ -1,4 +1,4 @@
-use wiremock::{MockServer, ResponseTemplate};
+use wiremock::MockServer;
 
 use crate::github::client::GitHubClient;
 
@@ -16,8 +16,4 @@ pub(crate) fn client_for(server: &MockServer) -> GitHubClient {
         server.uri(),
         format!("{}/graphql", server.uri()),
     )
-}
-
-pub(crate) fn json_response(body: &str) -> ResponseTemplate {
-    ResponseTemplate::new(200).set_body_raw(body, "application/json")
 }

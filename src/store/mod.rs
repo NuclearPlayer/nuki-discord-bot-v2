@@ -1,5 +1,7 @@
 pub mod intakes;
 pub mod settings;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod tool_turns;
 
 use std::path::Path;

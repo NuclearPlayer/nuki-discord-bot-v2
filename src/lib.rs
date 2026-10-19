@@ -12,6 +12,8 @@ pub mod routing;
 pub mod sandbox;
 pub mod store;
 pub mod tasks;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod workflows;
 
 use config::Config;

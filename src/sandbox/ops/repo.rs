@@ -1,10 +1,7 @@
 use std::convert::Infallible;
-use std::fmt::Display;
-use std::future::Future;
 use std::sync::Arc;
 
-use serde::Serialize;
-use serde::de::{DeserializeOwned, IgnoredAny};
+use serde::de::IgnoredAny;
 
 use crate::repos::manager::RepoManager;
 use crate::repos::ops;
@@ -12,6 +9,8 @@ use crate::repos::types::{
     GitLogParams, GitShowParams, GrepParams, ListDirParams, ListTagsParams, ReadFileParams,
 };
 use crate::sandbox::operation::{Operation, OperationTable, Param};
+
+const NAMESPACE: &str = "repo";
 
 /// The operations that read the local clones of the catalog repositories.
 pub fn repo_table(manager: Arc<RepoManager>) -> OperationTable {
@@ -27,8 +26,9 @@ pub fn repo_table(manager: Arc<RepoManager>) -> OperationTable {
 }
 
 fn list_repos(manager: &Arc<RepoManager>) -> Operation {
-    repo_operation(
+    Operation::with_handle(
         manager,
+        NAMESPACE,
         "listRepos",
         "Get a list of `nukeop/nuclear` and the `NuclearPlayer` repositories.",
         vec![],
@@ -38,8 +38,9 @@ fn list_repos(manager: &Arc<RepoManager>) -> Operation {
 }
 
 fn grep(manager: &Arc<RepoManager>) -> Operation {
-    repo_operation(
+    Operation::with_handle(
         manager,
+        NAMESPACE,
         "grep",
         "Search the contents of files with a regular expression.",
         vec![
@@ -64,8 +65,9 @@ fn grep(manager: &Arc<RepoManager>) -> Operation {
 }
 
 fn read_file(manager: &Arc<RepoManager>) -> Operation {
-    repo_operation(
+    Operation::with_handle(
         manager,
+        NAMESPACE,
         "readFile",
         "Read a file.",
         vec![
@@ -96,8 +98,9 @@ fn read_file(manager: &Arc<RepoManager>) -> Operation {
 }
 
 fn list_dir(manager: &Arc<RepoManager>) -> Operation {
-    repo_operation(
+    Operation::with_handle(
         manager,
+        NAMESPACE,
         "listDir",
         "Get a list of the contents of a directory.",
         vec![
@@ -116,8 +119,9 @@ fn list_dir(manager: &Arc<RepoManager>) -> Operation {
 }
 
 fn git_log(manager: &Arc<RepoManager>) -> Operation {
-    repo_operation(
+    Operation::with_handle(
         manager,
+        NAMESPACE,
         "gitLog",
         "Show commits.",
         vec![
@@ -153,8 +157,9 @@ fn git_log(manager: &Arc<RepoManager>) -> Operation {
 }
 
 fn git_show(manager: &Arc<RepoManager>) -> Operation {
-    repo_operation(
+    Operation::with_handle(
         manager,
+        NAMESPACE,
         "gitShow",
         "Show a commit, or show a file at a commit.",
         vec![
@@ -172,36 +177,15 @@ fn git_show(manager: &Arc<RepoManager>) -> Operation {
 }
 
 fn list_tags(manager: &Arc<RepoManager>) -> Operation {
-    repo_operation(
+    Operation::with_handle(
         manager,
+        NAMESPACE,
         "listTags",
         "Get a list of the tags.",
         vec![repo_param()],
         "string[]",
         |manager, params: ListTagsParams| async move { ops::list_tags(&manager, params).await },
     )
-}
-
-/// Makes a `repo.*` operation whose function gets its own handle to the manager.
-fn repo_operation<P, R, E, F, Fut>(
-    manager: &Arc<RepoManager>,
-    name: &'static str,
-    description: &'static str,
-    params: Vec<Param>,
-    returns: &'static str,
-    f: F,
-) -> Operation
-where
-    P: DeserializeOwned,
-    R: Serialize + 'static,
-    E: Display + 'static,
-    F: Fn(Arc<RepoManager>, P) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<R, E>> + Send + 'static,
-{
-    let manager = Arc::clone(manager);
-    Operation::typed("repo", name, description, params, returns, move |params| {
-        f(Arc::clone(&manager), params)
-    })
 }
 
 fn repo_param() -> Param {
@@ -226,13 +210,14 @@ fn ref_param() -> Param {
 mod tests {
     use std::path::PathBuf;
 
-    use serde_json::{Value, json};
+    use serde_json::json;
     use tempfile::TempDir;
 
     use super::*;
     use crate::repos::catalog::RepoCatalog;
     use crate::repos::test_support::{Origin, TestRepos, commit_2, commit_3};
-    use crate::sandbox::runtime::{Sandbox, SandboxLimits, ScriptOutcome};
+    use crate::sandbox::runtime::{Sandbox, SandboxLimits};
+    use crate::sandbox::test_support::value;
 
     struct RepoSandbox {
         sandbox: Sandbox,
@@ -253,14 +238,6 @@ mod tests {
                 _origin: origin,
                 _root: root,
             }
-        }
-    }
-
-    fn value(expected: Value) -> ScriptOutcome {
-        ScriptOutcome {
-            value: Some(expected),
-            logs: vec![],
-            error: None,
         }
     }
 

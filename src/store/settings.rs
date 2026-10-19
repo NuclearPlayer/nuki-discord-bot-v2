@@ -53,15 +53,8 @@ impl SettingsStore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::store::Store;
-
-    fn selection(model_id: &str, input_modalities: &[&str]) -> ModelSelection {
-        ModelSelection {
-            model_id: model_id.to_string(),
-            input_modalities: input_modalities.iter().map(|m| m.to_string()).collect(),
-        }
-    }
+    use crate::store::test_support::selection;
 
     #[tokio::test]
     async fn model_selection_is_none_before_a_selection_is_stored() {

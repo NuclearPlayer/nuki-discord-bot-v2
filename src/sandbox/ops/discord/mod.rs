@@ -1,17 +1,14 @@
 mod client;
 mod views;
 
-use std::fmt::Display;
-use std::future::Future;
 use std::sync::Arc;
-
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 
 pub use client::DiscordOps;
 use client::{EmojiParams, ListParams, MessageParams, ReactionParams, SearchParams};
 
 use crate::sandbox::operation::{Operation, OperationTable, Param};
+
+const NAMESPACE: &str = "discord";
 
 /// The TypeScript type of `MessageView`, as a literal so that `concat!` can use it.
 macro_rules! message_view_type {
@@ -33,8 +30,9 @@ pub fn discord_table(ops: DiscordOps) -> OperationTable {
 }
 
 fn search_guild_messages(ops: &Arc<DiscordOps>) -> Operation {
-    discord_operation(
+    Operation::with_handle(
         ops,
+        NAMESPACE,
         "searchGuildMessages",
         "Search the messages in the server.",
         vec![
@@ -79,8 +77,9 @@ fn search_guild_messages(ops: &Arc<DiscordOps>) -> Operation {
 }
 
 fn get_channel_message(ops: &Arc<DiscordOps>) -> Operation {
-    discord_operation(
+    Operation::with_handle(
         ops,
+        NAMESPACE,
         "getChannelMessage",
         "Get one message.",
         vec![channel_id_param(), message_id_param()],
@@ -90,8 +89,9 @@ fn get_channel_message(ops: &Arc<DiscordOps>) -> Operation {
 }
 
 fn list_channel_messages(ops: &Arc<DiscordOps>) -> Operation {
-    discord_operation(
+    Operation::with_handle(
         ops,
+        NAMESPACE,
         "listChannelMessages",
         "Get a list of the messages in a channel, with a `before`, `after`, or `around` cursor.",
         vec![
@@ -112,8 +112,9 @@ fn list_channel_messages(ops: &Arc<DiscordOps>) -> Operation {
 }
 
 fn create_reaction(ops: &Arc<DiscordOps>) -> Operation {
-    discord_operation(
+    Operation::with_handle(
         ops,
+        NAMESPACE,
         "createReaction",
         "Add a reaction to a message.",
         vec![
@@ -132,8 +133,9 @@ fn create_reaction(ops: &Arc<DiscordOps>) -> Operation {
 }
 
 fn create_guild_emoji(ops: &Arc<DiscordOps>) -> Operation {
-    discord_operation(
+    Operation::with_handle(
         ops,
+        NAMESPACE,
         "createGuildEmoji",
         "Add a custom emoji from an attachment.",
         vec![
@@ -154,33 +156,6 @@ fn create_guild_emoji(ops: &Arc<DiscordOps>) -> Operation {
         ],
         "{ id: string; name: string; text: string }",
         |ops, params: EmojiParams| async move { ops.create_guild_emoji(params).await },
-    )
-}
-
-/// Makes a `discord.*` operation whose function gets its own handle to the dependencies.
-fn discord_operation<P, R, E, F, Fut>(
-    ops: &Arc<DiscordOps>,
-    name: &'static str,
-    description: &'static str,
-    params: Vec<Param>,
-    returns: &'static str,
-    f: F,
-) -> Operation
-where
-    P: DeserializeOwned,
-    R: Serialize + 'static,
-    E: Display + 'static,
-    F: Fn(Arc<DiscordOps>, P) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<R, E>> + Send + 'static,
-{
-    let ops = Arc::clone(ops);
-    Operation::typed(
-        "discord",
-        name,
-        description,
-        params,
-        returns,
-        move |params| f(Arc::clone(&ops), params),
     )
 }
 
@@ -213,13 +188,15 @@ fn cursor_param(name: &'static str, description: &'static str) -> Param {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{Value, json};
+    use serde_json::json;
     use serenity::http::HttpBuilder;
     use wiremock::matchers::{body_json, header, method, path, query_param};
     use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
     use super::*;
     use crate::sandbox::runtime::{Sandbox, SandboxLimits, ScriptOutcome};
+    use crate::sandbox::test_support::value;
+    use crate::test_support::json_response;
 
     const REPLY_WITH_GIF: &str =
         include_str!("../../../../tests/fixtures/discord/ops_reply_with_gif.json");
@@ -254,27 +231,15 @@ mod tests {
         }
     }
 
-    fn json_response(body: &str) -> ResponseTemplate {
-        ResponseTemplate::new(200).set_body_raw(body, "application/json")
-    }
-
     async fn mount_reply_with_gif(server: &MockServer) {
         let body = REPLY_WITH_GIF.replace("MOCK_SERVER", &server.uri());
         Mock::given(method("GET"))
             .and(path(
                 "/api/v10/channels/1200000000000000001/messages/1100000000000000002",
             ))
-            .respond_with(json_response(&body))
+            .respond_with(json_response(200, &body))
             .mount(server)
             .await;
-    }
-
-    fn value(expected: Value) -> ScriptOutcome {
-        ScriptOutcome {
-            value: Some(expected),
-            logs: vec![],
-            error: None,
-        }
     }
 
     #[tokio::test]
@@ -288,7 +253,7 @@ mod tests {
             .and(query_param("limit", "10"))
             .and(query_param("offset", "20"))
             .and(header("Authorization", "Bot test-token"))
-            .respond_with(json_response(SEARCH_RESULTS))
+            .respond_with(json_response(200, SEARCH_RESULTS))
             .mount(&server)
             .await;
 
@@ -339,7 +304,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path(format!("/api/v10/guilds/{GUILD_ID}/messages/search")))
             .and(|request: &Request| request.url.query() == Some("content=playlist&limit=25"))
-            .respond_with(json_response(SEARCH_RESULTS))
+            .respond_with(json_response(200, SEARCH_RESULTS))
             .expect(1)
             .mount(&server)
             .await;
@@ -358,9 +323,9 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path(format!("/api/v10/guilds/{GUILD_ID}/messages/search")))
-            .respond_with(ResponseTemplate::new(403).set_body_raw(
+            .respond_with(json_response(
+                403,
                 r#"{"message": "Missing Access", "code": 50001}"#,
-                "application/json",
             ))
             .mount(&server)
             .await;
@@ -418,7 +383,7 @@ mod tests {
             .and(path("/api/v10/channels/1200000000000000001/messages"))
             .and(query_param("before", "1100000000000000030"))
             .and(query_param("limit", "50"))
-            .respond_with(json_response(CHANNEL_MESSAGES))
+            .respond_with(json_response(200, CHANNEL_MESSAGES))
             .mount(&server)
             .await;
 
@@ -512,7 +477,7 @@ mod tests {
                 "name": "dance",
                 "image": "data:image/gif;base64,R0lGODlh",
             })))
-            .respond_with(json_response(CREATED_EMOJI))
+            .respond_with(json_response(200, CREATED_EMOJI))
             .mount(&server)
             .await;
 

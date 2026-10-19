@@ -17,12 +17,13 @@ You need:
 Do these steps:
 
 1. Copy `.env.template` to `.env`.
-2. Set the four mandatory values in `.env`. The section [Environment variables](#environment-variables) tells what each value is.
-3. Set `DATA_DIR=data`. The default, `/data`, is the volume path on the server, and Git ignores `/data` in the repository.
-4. Invite the bot to your test server. Do not invite it to a different server: the bot must be in exactly one server.
-5. Run `cargo run`.
+2. Set the four mandatory values in `.env`. The section [Environment variables](#environment-variables) tells what each value is. The template sets `DATA_DIR=data`, because the default, `/data`, is the volume path on the server. Git ignores `/data` in the repository.
+3. Invite the bot to your test server. Do not invite it to a different server: the bot must be in exactly one server.
+4. Run `cargo run`.
 
-When the bot connects to Discord, it gets its server from Discord. If the bot is in no server or in more than one server, it logs an error and does not reply to messages. Then the bot clones `nukeop/nuclear` into `DATA_DIR/repos`. The first start takes some time because of this clone. The bot also makes the SQLite file `DATA_DIR/nuki.sqlite`. Messages that arrive before the bot is ready get no reply.
+The other variables are optional. Add one to `.env` only to change its default.
+
+When the bot connects to Discord, it gets its server from Discord. If the bot is in no server or in more than one server, it logs an error and stops. Then the bot clones `nukeop/nuclear` into `DATA_DIR/repos`. The first start takes some time because of this clone. The bot also makes the SQLite file `DATA_DIR/nuki.sqlite`. Messages that arrive before the bot is ready get no reply.
 
 The bot registers `/change-model` as a global command. Discord can take some time to show a new global command.
 

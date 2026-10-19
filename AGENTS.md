@@ -8,9 +8,8 @@ The bot is one crate, `nuki`. `src/main.rs` only calls `nuki::run()` in `src/lib
 
 | Module | Responsibility |
 |---|---|
-| `src/lib.rs` | `run()`: loads the configuration and starts the Discord client. |
-| `src/app.rs` | `App`: builds and holds the services that the handler and the background tasks share. |
-| `src/services.rs` | `Services`: builds the `App` for the server of the bot, and starts the debouncer, the unit reader, and the background tasks. The handler starts it once, at the first `ready` event. |
+| `src/lib.rs` | `run()`: loads the configuration, builds the services, starts the background tasks and the Discord client. |
+| `src/app.rs` | `App`: builds and holds the services that the handler and the background tasks share, and builds the sandbox for the server of a turn. |
 | `src/config.rs` | The typed `Config` from the environment variables, and the load of `.env`. |
 | `src/logging.rs` | The `tracing` subscriber, filtered by `RUST_LOG`. |
 | `src/tasks.rs` | The background tasks: the periodic `git fetch` and the intake timeout. |

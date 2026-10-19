@@ -23,10 +23,6 @@ pub(crate) async fn deps(server: &MockServer) -> WorkflowDeps {
         llm: Arc::new(LlmClient::new("test-key", &server.uri())),
         jev: Arc::new(JevClient::new("jev-key".to_string(), server.uri())),
         model: Arc::new(ActiveModel::load(settings, "test/model").await.unwrap()),
-        sandbox: Arc::new(Sandbox::new(
-            Arc::new(echo_table()),
-            SandboxLimits::production(),
-        )),
         help_quality_threshold: 0.7,
     }
 }
@@ -64,6 +60,10 @@ pub(crate) fn context(trigger: Trigger, messages: Vec<ChatMessage>) -> TurnConte
         unit_len: 1,
         stored_turns: HashMap::new(),
         runtime: runtime(),
+        sandbox: Arc::new(Sandbox::new(
+            Arc::new(echo_table()),
+            SandboxLimits::production(),
+        )),
     }
 }
 

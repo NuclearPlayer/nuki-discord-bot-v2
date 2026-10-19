@@ -32,6 +32,8 @@ pub struct TurnContext {
     /// The stored tool turns, by the ID of the message of Nuki that ended the turn.
     pub stored_turns: HashMap<u64, Vec<serde_json::Value>>,
     pub runtime: RuntimeContext,
+    /// The sandbox of the `run_script` tool, for the server of the turn.
+    pub sandbox: Arc<Sandbox>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,7 +71,6 @@ pub struct WorkflowDeps {
     pub llm: Arc<LlmClient>,
     pub jev: Arc<JevClient>,
     pub model: Arc<ActiveModel>,
-    pub sandbox: Arc<Sandbox>,
     pub help_quality_threshold: f64,
 }
 
@@ -101,7 +102,7 @@ pub async fn llm_turn(
         system_prompt: SystemPrompt::build(workflow_prompt, options.extra, &ctx.runtime),
         history,
         prompt,
-        sandbox: options.with_tools.then(|| Arc::clone(&deps.sandbox)),
+        sandbox: options.with_tools.then(|| Arc::clone(&ctx.sandbox)),
     };
     Ok(deps.llm.run(request).await?)
 }

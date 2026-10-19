@@ -122,7 +122,7 @@ async fn classify(
     trigger: ClassifiedTrigger,
 ) -> anyhow::Result<Option<Routed>> {
     let channel = fetch_channel(app, last_message(unit).channel_id).await?;
-    let history = fetch_unit_context(app, unit).await?;
+    let history = fetch_unit_context(app, channel.guild_id, unit).await?;
     let lines = jev_lines(&history);
     let (history_lines, unit_lines) = lines.split_at(lines.len() - unit.len());
     let classification = app
@@ -172,6 +172,7 @@ async fn run_workflow(
     let trigger = Trigger::from(routed.trigger);
     let ctx = turn_context(
         app,
+        routed.channel.guild_id,
         trigger,
         &routed.channel.name,
         routed.history,

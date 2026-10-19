@@ -44,7 +44,6 @@ pub struct BotIdentity {
 pub struct App {
     pub config: Config,
     pub http: Arc<Http>,
-    pub guild_id: GuildId,
     pub nuki: BotIdentity,
     pub store: Store,
     pub active_model: Arc<ActiveModel>,
@@ -56,12 +55,13 @@ pub struct App {
     pub help: HelpWorkflow,
     pub intake: IntakeWorkflow,
     pub repos: Arc<RepoManager>,
+    pub github: Arc<GitHubClient>,
     pub admin_log: AdminLog,
     pub rest: reqwest::Client,
 }
 
 impl App {
-    pub async fn build(config: Config, guild_id: GuildId) -> anyhow::Result<Arc<App>> {
+    pub async fn build(config: Config) -> anyhow::Result<Arc<App>> {
         let store = open_store(&config).await?;
 
         let github = Arc::new(GitHubClient::new(
@@ -99,19 +99,6 @@ impl App {
         let models = ModelsClient::new(OPENROUTER_URL.to_string());
         let active_model = Arc::new(ActiveModel::load(store.settings(), DEFAULT_MODEL_ID).await?);
 
-        let rest = reqwest::Client::new();
-        let discord_ops = DiscordOps {
-            http: Arc::clone(&http),
-            rest: rest.clone(),
-            api_base: DISCORD_API_BASE.to_string(),
-            bot_token: config.discord_token.clone(),
-            guild_id: guild_id.get(),
-        };
-        let sandbox = Arc::new(Sandbox::new(
-            Arc::new(full_table(discord_ops, Arc::clone(&repos), github)),
-            SandboxLimits::production(),
-        ));
-
         let jev = Arc::new(JevClient::new(
             config.openrouter_api_key.clone(),
             OPENROUTER_URL.to_string(),
@@ -120,12 +107,10 @@ impl App {
             llm,
             jev: Arc::clone(&jev),
             model: Arc::clone(&active_model),
-            sandbox,
             help_quality_threshold: config.threshold_help_quality,
         };
 
         Ok(Arc::new(App {
-            guild_id,
             nuki,
             store,
             active_model,
@@ -137,14 +122,32 @@ impl App {
             help: HelpWorkflow { deps: deps.clone() },
             intake: IntakeWorkflow { deps },
             repos,
+            github,
             admin_log: AdminLog {
                 http: Arc::clone(&http),
                 channel_id: config.admin_log_channel_id,
             },
             http,
-            rest,
+            rest: reqwest::Client::new(),
             config,
         }))
+    }
+
+    /// The sandbox of the `run_script` tool, with the Discord operations of `guild_id`.
+    pub fn sandbox_for(&self, guild_id: GuildId) -> Arc<Sandbox> {
+        let discord_ops = DiscordOps {
+            http: Arc::clone(&self.http),
+            rest: self.rest.clone(),
+            api_base: DISCORD_API_BASE.to_string(),
+            bot_token: self.config.discord_token.clone(),
+            guild_id: guild_id.get(),
+        };
+        let table = full_table(
+            discord_ops,
+            Arc::clone(&self.repos),
+            Arc::clone(&self.github),
+        );
+        Arc::new(Sandbox::new(Arc::new(table), SandboxLimits::production()))
     }
 }
 

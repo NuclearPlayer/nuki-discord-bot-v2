@@ -4,7 +4,7 @@ use anyhow::Context;
 use futures::future::try_join_all;
 use serenity::builder::GetMessages;
 use serenity::model::channel::{GuildChannel, Message, MessageType};
-use serenity::model::id::{ChannelId, MessageId};
+use serenity::model::id::{ChannelId, GuildId, MessageId};
 
 use crate::app::App;
 use crate::discord::attachments::{ResolvedMessage, resolve_message};
@@ -36,13 +36,14 @@ pub async fn fetch_channel(app: &App, channel_id: ChannelId) -> anyhow::Result<G
 /// The `CONTEXT_MESSAGES` last messages of the channel: the history before the unit, then the unit.
 pub async fn fetch_unit_context(
     app: &App,
+    guild_id: GuildId,
     unit: &[Message],
 ) -> anyhow::Result<Vec<ResolvedMessage>> {
     let first = first_message(unit);
     let earlier_count = app.config.context_messages.saturating_sub(unit.len());
     let earlier = messages_before(app, first.channel_id, first.id, earlier_count).await?;
     let messages = earlier.into_iter().chain(unit.iter().cloned()).collect();
-    resolve(app, messages).await
+    resolve(app, guild_id, messages).await
 }
 
 /// The messages of the intake, oldest first, from the first message of the unit that started it.
@@ -53,6 +54,7 @@ pub async fn fetch_unit_context(
 /// in the parent channel, the starter message, and all messages of the thread.
 pub async fn fetch_thread_history(
     app: &App,
+    guild_id: GuildId,
     intake: &Intake,
 ) -> anyhow::Result<Vec<ResolvedMessage>> {
     let origin_id = MessageId::new(intake.origin_message_id);
@@ -66,7 +68,7 @@ pub async fn fetch_thread_history(
         .into_iter()
         .filter(|message| !is_system(message))
         .collect();
-    resolve(app, conversation).await
+    resolve(app, guild_id, conversation).await
 }
 
 /// The earlier messages of the unit in the parent channel, the starter message, then the thread.
@@ -169,9 +171,14 @@ async fn origin_messages(app: &App, intake: &Intake) -> anyhow::Result<Vec<Messa
 }
 
 /// Maps the messages to the form of the context builder, with the display name and the roles of
-/// each author, and the attachments in the input modalities of the active model.
-async fn resolve(app: &App, messages: Vec<Message>) -> anyhow::Result<Vec<ResolvedMessage>> {
-    let authors = authors_of(app, &messages).await?;
+/// each author in the server `guild_id`, and the attachments in the input modalities of the
+/// active model.
+async fn resolve(
+    app: &App,
+    guild_id: GuildId,
+    messages: Vec<Message>,
+) -> anyhow::Result<Vec<ResolvedMessage>> {
+    let authors = authors_of(app, guild_id, &messages).await?;
     let chat_messages: Vec<ChatMessage> = messages
         .iter()
         .map(|message| {

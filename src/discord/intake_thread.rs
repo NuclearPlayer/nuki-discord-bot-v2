@@ -120,15 +120,23 @@ async fn close_deleted(app: &App, intake: &Intake) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The turn context of the intake, with the history of its thread.
+/// The turn context of the intake in the server of its thread, with the history of the thread.
 async fn thread_turn_context(
     app: &App,
     intake: &Intake,
     unit_len: usize,
 ) -> anyhow::Result<TurnContext> {
     let thread = fetch_channel(app, ChannelId::new(intake.thread_id)).await?;
-    let history = fetch_thread_history(app, intake).await?;
-    turn_context(app, Trigger::IntakeThread, &thread.name, history, unit_len).await
+    let history = fetch_thread_history(app, thread.guild_id, intake).await?;
+    turn_context(
+        app,
+        thread.guild_id,
+        Trigger::IntakeThread,
+        &thread.name,
+        history,
+        unit_len,
+    )
+    .await
 }
 
 /// Opens the intake in a thread, stores its record, and runs its first turn.
@@ -154,8 +162,9 @@ pub(super) async fn start_intake(
             created_at: Utc::now(),
         })
         .await?;
-    let history = fetch_thread_history(app, &intake).await?;
-    let ctx = turn_context(app, trigger, &thread.name, history, unit.len()).await?;
+    let guild_id = channel.guild_id;
+    let history = fetch_thread_history(app, guild_id, &intake).await?;
+    let ctx = turn_context(app, guild_id, trigger, &thread.name, history, unit.len()).await?;
     let outcome = app.intake.run_turn(&ctx, &intake).await?;
     let applied = AppliedTurn {
         trigger,

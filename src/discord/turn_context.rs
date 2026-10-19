@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use futures::future::try_join_all;
+use serenity::model::id::GuildId;
 
 use crate::app::App;
 use crate::discord::attachments::ResolvedMessage;
@@ -11,9 +12,11 @@ use crate::prompts::system::{CustomEmoji, RuntimeContext};
 use crate::routing::trigger::Trigger;
 use crate::workflows::TurnContext;
 
-/// The turn context, with the stored tool turns of the messages of the history.
+/// The turn context in the server `guild_id`, with the stored tool turns of the messages of the
+/// history.
 pub async fn turn_context(
     app: &App,
+    guild_id: GuildId,
     trigger: Trigger,
     channel_name: &str,
     history: Vec<ResolvedMessage>,
@@ -26,13 +29,17 @@ pub async fn turn_context(
         history,
         unit_len,
         stored_turns,
-        runtime: runtime_context(app, channel_name).await?,
+        runtime: runtime_context(app, guild_id, channel_name).await?,
+        sandbox: app.sandbox_for(guild_id),
     })
 }
 
-async fn runtime_context(app: &App, channel_name: &str) -> anyhow::Result<RuntimeContext> {
-    let emoji = app
-        .guild_id
+async fn runtime_context(
+    app: &App,
+    guild_id: GuildId,
+    channel_name: &str,
+) -> anyhow::Result<RuntimeContext> {
+    let emoji = guild_id
         .emojis(&app.http)
         .await?
         .into_iter()

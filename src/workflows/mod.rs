@@ -104,7 +104,7 @@ pub async fn llm_turn(
     let messages = build_history(&ctx.history, &ctx.stored_turns)?;
     let (history, prompt) = split_prompt(messages, options.instruction)?;
     let request = TurnRequest {
-        model: deps.model.current(),
+        model_id: deps.model.current(),
         system_prompt: SystemPrompt::build(workflow_prompt, options.extra, &ctx.runtime),
         history,
         prompt,

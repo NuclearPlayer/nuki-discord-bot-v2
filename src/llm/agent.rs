@@ -17,7 +17,6 @@ use super::stats_hook::StatsHook;
 use crate::sandbox::runtime::Sandbox;
 use crate::stats::event::LlmPurpose;
 use crate::stats::recorder::RunStats;
-use crate::store::settings::ModelSelection;
 
 /// The production base URL of the OpenRouter API.
 pub const OPENROUTER_BASE_URL: &str = OPENROUTER.base_url;
@@ -43,7 +42,7 @@ pub enum LlmError {
 }
 
 pub struct TurnRequest {
-    pub model: ModelSelection,
+    pub model_id: String,
     pub system_prompt: String,
     pub history: Vec<Message>,
     pub prompt: Message,
@@ -74,7 +73,7 @@ impl LlmClient {
 
     /// Runs one LLM turn: the model can call `run_script` up to 50 times, then it must answer.
     pub async fn run(&self, request: TurnRequest) -> Result<TurnResult, LlmError> {
-        tracing::info!(model = request.model.model_id, "LLM turn");
+        tracing::info!(model = request.model_id, "LLM turn");
         let agent = self.agent(&request);
         let response = agent
             .prompt(request.prompt.clone())
@@ -83,7 +82,7 @@ impl LlmClient {
             .add_hook(StatsHook::new(
                 request.stats,
                 LlmPurpose::Turn,
-                request.model.model_id,
+                request.model_id,
             ))
             .await?;
         Ok(TurnResult {
@@ -93,7 +92,7 @@ impl LlmClient {
     }
 
     fn agent(&self, request: &TurnRequest) -> Agent {
-        let builder = AgentBuilder::new(self.client.completion(&request.model.model_id))
+        let builder = AgentBuilder::new(self.client.completion(&request.model_id))
             .name(AGENT_NAME)
             .preamble(&request.system_prompt);
         match &request.sandbox {
@@ -106,7 +105,7 @@ impl LlmClient {
 
     pub async fn extract<T>(
         &self,
-        model: &ModelSelection,
+        model_id: &str,
         system_prompt: &str,
         history: Vec<Message>,
         instruction: &str,
@@ -115,7 +114,7 @@ impl LlmClient {
     where
         T: JsonSchema + DeserializeOwned + Serialize + Send + Sync + 'static,
     {
-        let extractor = ExtractorBuilder::<T>::new(self.client.completion(&model.model_id))
+        let extractor = ExtractorBuilder::<T>::new(self.client.completion(model_id))
             .append_preamble(system_prompt)
             .build();
         let response = extractor
@@ -124,7 +123,7 @@ impl LlmClient {
             .add_hook(StatsHook::new(
                 stats.clone(),
                 LlmPurpose::Extract,
-                model.model_id.clone(),
+                model_id.to_string(),
             ))
             .await?;
         Ok(response.output)
@@ -214,16 +213,11 @@ mod tests {
         ))
     }
 
-    fn test_model() -> ModelSelection {
-        ModelSelection {
-            model_id: "test/model".to_string(),
-            input_modalities: vec!["text".to_string()],
-        }
-    }
+    const TEST_MODEL_ID: &str = "test/model";
 
     fn request(sandbox: Option<Arc<Sandbox>>, stats: RunStats) -> TurnRequest {
         TurnRequest {
-            model: test_model(),
+            model_id: TEST_MODEL_ID.to_string(),
             system_prompt: "You are Nuki.".to_string(),
             history: vec![Message::user("Hi Nuki."), Message::assistant("Hello.")],
             prompt: Message::user("Echo a = 1."),
@@ -345,7 +339,7 @@ mod tests {
     async fn extract_bug_fields(server: &MockServer, stats: &RunStats) -> BugFields {
         client(server)
             .extract(
-                &test_model(),
+                TEST_MODEL_ID,
                 "You read bug reports.",
                 vec![Message::user("Playback stops after one track.")],
                 "Extract the bug fields.",

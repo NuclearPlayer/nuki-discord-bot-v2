@@ -1,16 +1,9 @@
 use rusqlite::OptionalExtension;
-use serde::{Deserialize, Serialize};
 use tokio_rusqlite::Connection;
 
-use super::{Result, StoreError, call};
+use super::{Result, call};
 
-const MODEL_SELECTION_KEY: &str = "model_selection";
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
-pub struct ModelSelection {
-    pub model_id: String,
-    pub input_modalities: Vec<String>,
-}
+const MODEL_ID_KEY: &str = "model_id";
 
 #[derive(Clone)]
 pub struct SettingsStore {
@@ -22,28 +15,26 @@ impl SettingsStore {
         Self { conn }
     }
 
-    pub async fn model_selection(&self) -> Result<Option<ModelSelection>> {
+    /// The ID of the model that an administrator selected with `/change-model`.
+    pub async fn model_id(&self) -> Result<Option<String>> {
         call(&self.conn, |c| {
-            c.query_row(
+            Ok(c.query_row(
                 "SELECT value FROM settings WHERE key = ?1",
-                [MODEL_SELECTION_KEY],
+                [MODEL_ID_KEY],
                 |row| row.get::<_, String>(0),
             )
-            .optional()?
-            .map(|json| serde_json::from_str(&json))
-            .transpose()
-            .map_err(StoreError::from)
+            .optional()?)
         })
         .await
     }
 
-    pub async fn set_model_selection(&self, selection: &ModelSelection) -> Result<()> {
-        let json = serde_json::to_string(selection)?;
+    pub async fn set_model_id(&self, model_id: &str) -> Result<()> {
+        let model_id = model_id.to_string();
         call(&self.conn, move |c| {
             c.execute(
                 "INSERT INTO settings (key, value) VALUES (?1, ?2)
                  ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                (MODEL_SELECTION_KEY, json),
+                (MODEL_ID_KEY, model_id),
             )?;
             Ok(())
         })
@@ -54,36 +45,42 @@ impl SettingsStore {
 #[cfg(test)]
 mod tests {
     use crate::store::Store;
-    use crate::store::test_support::selection;
 
     #[tokio::test]
-    async fn model_selection_is_none_before_a_selection_is_stored() {
+    async fn model_id_is_none_before_a_model_is_stored() {
         let settings = Store::open_in_memory().await.unwrap().settings();
 
-        assert_eq!(settings.model_selection().await.unwrap(), None);
+        assert_eq!(settings.model_id().await.unwrap(), None);
     }
 
     #[tokio::test]
-    async fn set_model_selection_stores_the_selection() {
+    async fn set_model_id_stores_the_model_id() {
         let settings = Store::open_in_memory().await.unwrap().settings();
-        let stored = selection("anthropic/claude-sonnet-4", &["text", "image"]);
-
-        settings.set_model_selection(&stored).await.unwrap();
-
-        assert_eq!(settings.model_selection().await.unwrap(), Some(stored));
-    }
-
-    #[tokio::test]
-    async fn set_model_selection_replaces_the_previous_selection() {
-        let settings = Store::open_in_memory().await.unwrap().settings();
-        let replacement = selection("openai/gpt-5", &["text"]);
 
         settings
-            .set_model_selection(&selection("anthropic/claude-sonnet-4", &["text", "image"]))
+            .set_model_id("anthropic/claude-sonnet-4")
             .await
             .unwrap();
-        settings.set_model_selection(&replacement).await.unwrap();
 
-        assert_eq!(settings.model_selection().await.unwrap(), Some(replacement));
+        assert_eq!(
+            settings.model_id().await.unwrap(),
+            Some("anthropic/claude-sonnet-4".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn set_model_id_replaces_the_previous_model_id() {
+        let settings = Store::open_in_memory().await.unwrap().settings();
+
+        settings
+            .set_model_id("anthropic/claude-sonnet-4")
+            .await
+            .unwrap();
+        settings.set_model_id("openai/gpt-5").await.unwrap();
+
+        assert_eq!(
+            settings.model_id().await.unwrap(),
+            Some("openai/gpt-5".to_string())
+        );
     }
 }

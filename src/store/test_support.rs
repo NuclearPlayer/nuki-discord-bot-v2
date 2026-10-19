@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 
-use crate::store::settings::ModelSelection;
 use crate::store::{Store, call, timestamp_column};
 
 #[derive(Debug, PartialEq)]
@@ -12,13 +11,6 @@ pub(crate) struct EventRow {
     pub channel_id: Option<u64>,
     pub user_id: Option<u64>,
     pub data: serde_json::Value,
-}
-
-pub(crate) fn selection(model_id: &str, input_modalities: &[&str]) -> ModelSelection {
-    ModelSelection {
-        model_id: model_id.to_string(),
-        input_modalities: input_modalities.iter().map(|m| m.to_string()).collect(),
-    }
 }
 
 /// All rows of `events`, sorted by `id`.

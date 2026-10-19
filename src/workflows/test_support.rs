@@ -10,7 +10,6 @@ use crate::decisions::client::JevClient;
 use crate::discord::attachments::ResolvedMessage;
 use crate::discord::chat_message::ChatMessage;
 use crate::llm::agent::LlmClient;
-use crate::llm::models_list::ModelsClient;
 use crate::llm::selection::ActiveModel;
 use crate::prompts::system::RuntimeContext;
 use crate::routing::trigger::Trigger;
@@ -18,23 +17,13 @@ use crate::sandbox::runtime::{Sandbox, SandboxLimits};
 use crate::sandbox::test_support::echo_table;
 use crate::stats::test_support::unrecorded_run;
 use crate::store::Store;
-use crate::store::test_support::selection;
 
 pub(crate) async fn deps(server: &MockServer) -> WorkflowDeps {
     let settings = Store::open_in_memory().await.unwrap().settings();
-    settings
-        .set_model_selection(&selection("test/model", &["text", "image"]))
-        .await
-        .unwrap();
-    let models = ModelsClient::new(server.uri());
     WorkflowDeps {
         llm: Arc::new(LlmClient::new("test-key", &server.uri())),
         jev: Arc::new(JevClient::new("jev-key".to_string(), server.uri())),
-        model: Arc::new(
-            ActiveModel::load(settings, &models, "test/model")
-                .await
-                .unwrap(),
-        ),
+        model: Arc::new(ActiveModel::load(settings, "test/model").await.unwrap()),
         help_quality_threshold: 0.7,
     }
 }

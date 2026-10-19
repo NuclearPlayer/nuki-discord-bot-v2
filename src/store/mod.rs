@@ -52,6 +52,7 @@ impl Store {
             Migrations::new(vec![
                 M::up(include_str!("../../migrations/001_init.sql")),
                 M::up(include_str!("../../migrations/002_events.sql")),
+                M::up(include_str!("../../migrations/003_model_id.sql")),
             ])
             .to_latest(c)
             .map_err(StoreError::from)
@@ -108,20 +109,15 @@ fn timestamp_column(row: &Row, index: usize) -> rusqlite::Result<DateTime<Utc>> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::settings::ModelSelection;
 
     #[tokio::test]
     async fn open_keeps_the_data_in_the_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nuki.db");
-        let selection = ModelSelection {
-            model_id: "anthropic/claude-sonnet-4".to_string(),
-            input_modalities: vec!["text".to_string(), "image".to_string()],
-        };
         let store = Store::open(&path).await.unwrap();
         store
             .settings()
-            .set_model_selection(&selection)
+            .set_model_id("anthropic/claude-sonnet-4")
             .await
             .unwrap();
         drop(store);
@@ -129,8 +125,34 @@ mod tests {
         let reopened = Store::open(&path).await.unwrap();
 
         assert_eq!(
-            reopened.settings().model_selection().await.unwrap(),
-            Some(selection)
+            reopened.settings().model_id().await.unwrap(),
+            Some("anthropic/claude-sonnet-4".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn open_keeps_the_model_of_a_stored_model_selection() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nuki.db");
+        let mut old = rusqlite::Connection::open(&path).unwrap();
+        Migrations::new(vec![
+            M::up(include_str!("../../migrations/001_init.sql")),
+            M::up(include_str!("../../migrations/002_events.sql")),
+        ])
+        .to_latest(&mut old)
+        .unwrap();
+        old.execute(
+            "INSERT INTO settings (key, value) VALUES ('model_selection', ?1)",
+            [r#"{"model_id":"openai/gpt-5","input_modalities":["text"]}"#],
+        )
+        .unwrap();
+        drop(old);
+
+        let store = Store::open(&path).await.unwrap();
+
+        assert_eq!(
+            store.settings().model_id().await.unwrap(),
+            Some("openai/gpt-5".to_string())
         );
     }
 }

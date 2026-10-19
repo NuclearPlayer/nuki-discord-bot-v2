@@ -26,6 +26,16 @@ pub(crate) async fn mount_models(server: &MockServer) {
         .await;
 }
 
+const GEMINI_ENDPOINTS: &str = include_str!("../../tests/fixtures/llm/model_endpoints.json");
+
+pub(crate) async fn mount_gemini_endpoints(server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/api/v1/models/google/gemini-3.8-flash/endpoints"))
+        .respond_with(json_response(200, GEMINI_ENDPOINTS))
+        .mount(server)
+        .await;
+}
+
 pub(crate) async fn mount_llm_replies(server: &MockServer, replies: &[&str]) {
     for body in replies {
         Mock::given(method("POST"))

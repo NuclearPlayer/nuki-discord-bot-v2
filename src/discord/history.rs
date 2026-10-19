@@ -191,9 +191,24 @@ async fn resolve(
             )
         })
         .collect();
-    let input_modalities = app.active_model.current().input_modalities;
+    let input_modalities = input_modalities(app, &chat_messages).await?;
     let resolved = chat_messages
         .iter()
         .map(|chat_message| resolve_message(chat_message, &input_modalities, &app.rest));
     Ok(try_join_all(resolved).await?)
+}
+
+/// The input modalities that OpenRouter lists now for the active model. Messages without
+/// attachments do not need them, so then the bot does not ask OpenRouter.
+async fn input_modalities(app: &App, messages: &[ChatMessage]) -> anyhow::Result<Vec<String>> {
+    if messages
+        .iter()
+        .all(|message| message.attachments.is_empty())
+    {
+        return Ok(Vec::new());
+    }
+    Ok(app
+        .models
+        .input_modalities(&app.active_model.current())
+        .await?)
 }

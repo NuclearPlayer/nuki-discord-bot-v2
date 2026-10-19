@@ -19,7 +19,6 @@ pub struct ModelInfo {
     pub name: String,
     pub prompt_usd_per_m: f64,
     pub completion_usd_per_m: f64,
-    pub input_modalities: Vec<String>,
 }
 
 /// One autocomplete choice of `/change-model`.
@@ -29,7 +28,7 @@ pub struct ModelChoice {
     pub value: String,
 }
 
-/// Lists the OpenRouter models that support tools.
+/// The client of the OpenRouter models API.
 pub struct ModelsClient {
     http: reqwest::Client,
     base_url: String,
@@ -56,6 +55,22 @@ impl ModelsClient {
             .await?;
         response.data.into_iter().map(ModelInfo::try_from).collect()
     }
+
+    /// Gets the input modalities that OpenRouter lists now for `model_id`.
+    pub async fn input_modalities(&self, model_id: &str) -> Result<Vec<String>, ModelsError> {
+        let response: ModelEndpointsResponse = self
+            .http
+            .get(format!(
+                "{}/api/v1/models/{model_id}/endpoints",
+                self.base_url
+            ))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        Ok(response.data.architecture.input_modalities)
+    }
 }
 
 #[derive(Deserialize)]
@@ -64,11 +79,20 @@ struct ModelsResponse {
 }
 
 #[derive(Deserialize)]
+struct ModelEndpointsResponse {
+    data: ApiModelEndpoints,
+}
+
+#[derive(Deserialize)]
+struct ApiModelEndpoints {
+    architecture: ApiArchitecture,
+}
+
+#[derive(Deserialize)]
 struct ApiModel {
     id: String,
     name: String,
     pricing: ApiPricing,
-    architecture: ApiArchitecture,
 }
 
 /// Prices in USD for each token, as decimal strings.
@@ -92,7 +116,6 @@ impl TryFrom<ApiModel> for ModelInfo {
             name: model.name,
             prompt_usd_per_m: usd_per_m(&model.pricing.prompt)?,
             completion_usd_per_m: usd_per_m(&model.pricing.completion)?,
-            input_modalities: model.architecture.input_modalities,
         })
     }
 }
@@ -152,7 +175,7 @@ mod tests {
     use wiremock::{Mock, MockServer};
 
     use super::*;
-    use crate::llm::test_support::MODELS;
+    use crate::llm::test_support::{MODELS, mount_gemini_endpoints};
     use crate::test_support::json_response;
 
     fn model(id: &str, name: &str) -> ModelInfo {
@@ -161,7 +184,6 @@ mod tests {
             name: name.to_string(),
             prompt_usd_per_m: 0.3,
             completion_usd_per_m: 2.5,
-            input_modalities: vec!["text".to_string()],
         }
     }
 
@@ -276,21 +298,27 @@ mod tests {
                     name: "Google: Gemini 3.8 Flash".to_string(),
                     prompt_usd_per_m: 0.3,
                     completion_usd_per_m: 2.5,
-                    input_modalities: vec![
-                        "text".to_string(),
-                        "image".to_string(),
-                        "file".to_string(),
-                        "audio".to_string()
-                    ],
                 },
                 ModelInfo {
                     id: "anthropic/claude-sonnet-4".to_string(),
                     name: "Anthropic: Claude Sonnet 4".to_string(),
                     prompt_usd_per_m: 3.0,
                     completion_usd_per_m: 15.0,
-                    input_modalities: vec!["image".to_string(), "text".to_string()],
                 },
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn input_modalities_gives_the_modalities_of_the_model() {
+        let server = MockServer::start().await;
+        mount_gemini_endpoints(&server).await;
+
+        let modalities = ModelsClient::new(server.uri())
+            .input_modalities("google/gemini-3.8-flash")
+            .await
+            .unwrap();
+
+        assert_eq!(modalities, ["text", "image", "video", "file", "audio"]);
     }
 }

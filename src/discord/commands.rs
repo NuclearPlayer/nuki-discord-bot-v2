@@ -10,7 +10,7 @@ use serenity::model::id::GuildId;
 use thiserror::Error;
 
 use crate::llm::models_list::{ModelChoice, ModelsClient, ModelsError, choices};
-use crate::llm::selection::{ActiveModel, listed_selection};
+use crate::llm::selection::ActiveModel;
 use crate::stats::event::{Event, ModelChanged};
 use crate::stats::recorder::{EventScope, Stats};
 use crate::store::StoreError;
@@ -136,12 +136,13 @@ async fn change_model(
     active: &ActiveModel,
     model_id: &str,
 ) -> Result<Option<String>, ChangeError> {
-    let Some(selection) = listed_selection(models, model_id).await? else {
+    let listed = models.list().await?;
+    if !listed.iter().any(|model| model.id == model_id) {
         return Ok(None);
-    };
+    }
 
-    let previous = active.current().model_id;
-    active.set(selection).await?;
+    let previous = active.current();
+    active.set(model_id).await?;
     Ok(Some(previous))
 }
 
@@ -185,7 +186,6 @@ mod tests {
     use crate::llm::test_support::mount_models;
     use crate::stats::test_support::{RunEvent, events_between};
     use crate::store::Store;
-    use crate::store::test_support::selection;
     use crate::test_support::discord_http;
 
     const INTERACTION: &str =
@@ -216,7 +216,7 @@ mod tests {
             let http = discord_http(&discord);
             let store = Store::open_in_memory().await.unwrap();
             let models = ModelsClient::new(openrouter.uri());
-            let active = ActiveModel::load(store.settings(), &models, "google/gemini-3.8-flash")
+            let active = ActiveModel::load(store.settings(), "google/gemini-3.8-flash")
                 .await
                 .unwrap();
             Fixture {
@@ -270,10 +270,7 @@ mod tests {
                 }
             })
         );
-        assert_eq!(
-            fixture.active.current(),
-            selection("anthropic/claude-sonnet-4", &["image", "text"])
-        );
+        assert_eq!(fixture.active.current(), "anthropic/claude-sonnet-4");
     }
 
     #[tokio::test]
@@ -317,13 +314,7 @@ mod tests {
                 }
             })
         );
-        assert_eq!(
-            fixture.active.current(),
-            selection(
-                "google/gemini-3.8-flash",
-                &["text", "image", "file", "audio"]
-            )
-        );
+        assert_eq!(fixture.active.current(), "google/gemini-3.8-flash");
     }
 
     #[test]

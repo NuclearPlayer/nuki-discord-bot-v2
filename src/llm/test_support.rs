@@ -1,3 +1,6 @@
+use rig_core::message::{
+    AssistantContent, Message, ToolCall, ToolResult, ToolResultContent, UserContent,
+};
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
@@ -26,6 +29,50 @@ pub(crate) async fn llm_request_bodies(server: &MockServer) -> Vec<Value> {
         .filter(|request| request.url.path() == "/chat/completions")
         .map(|request| request.body_json().unwrap())
         .collect()
+}
+
+pub(crate) fn messages(turn_messages: Vec<Value>) -> Vec<Message> {
+    turn_messages
+        .into_iter()
+        .map(|json| serde_json::from_value(json).unwrap())
+        .collect()
+}
+
+/// Asserts that the turn is one `run_script` call of `test.echo({ a: 1 })` and its result.
+pub(crate) fn assert_echo_tool_turn(turn: Vec<Message>) {
+    let [call, result]: [Message; 2] = turn.try_into().unwrap();
+    let call = tool_call(call);
+    assert_eq!(call.function.name.as_str(), "run_script");
+    assert_eq!(
+        Value::from(call.function.arguments),
+        json!({ "code": "return await test.echo({ a: 1 })" })
+    );
+    assert_eq!(
+        tool_result(result).content,
+        vec![ToolResultContent::text(r#"{"value":{"a":1}}"#)]
+    );
+}
+
+fn tool_call(message: Message) -> ToolCall {
+    let Message::Assistant(assistant) = message else {
+        panic!("expected an assistant message, got {message:?}");
+    };
+    let [AssistantContent::ToolCall(call)]: [AssistantContent; 1] =
+        assistant.content.try_into().unwrap()
+    else {
+        panic!("expected one tool call");
+    };
+    call
+}
+
+fn tool_result(message: Message) -> ToolResult {
+    let Message::User { content } = message else {
+        panic!("expected a user message, got {message:?}");
+    };
+    let [UserContent::ToolResult(result)]: [UserContent; 1] = content.try_into().unwrap() else {
+        panic!("expected one tool result");
+    };
+    result
 }
 
 pub(crate) fn run_script_tools() -> Value {

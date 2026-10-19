@@ -107,10 +107,11 @@ mod tests {
     use indexmap::indexmap;
     use serde_json::{Value, json};
     use wiremock::matchers::{body_json, method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::{Mock, MockServer};
 
     use super::*;
     use crate::decisions::client::JEV_MODEL;
+    use crate::decisions::test_support::{JEV_PATH, jev_response, mount_jev_answers};
 
     fn history() -> Vec<String> {
         vec!["alice: does anyone know how to add a plugin?".to_string()]
@@ -163,19 +164,12 @@ mod tests {
         })
     }
 
-    fn responding_with(answers: Value) -> ResponseTemplate {
-        ResponseTemplate::new(200).set_body_json(json!({
-            "model": "typesafe/jev-1.14-20261014",
-            "answers": answers,
-        }))
-    }
-
     async fn jev_expecting(request: Value) -> MockServer {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/api/alpha/decisions"))
+            .and(path(JEV_PATH))
             .and(body_json(request))
-            .respond_with(responding_with(answer_with(&[("bug_report", 1.0)])))
+            .respond_with(jev_response(answer_with(&[("bug_report", 1.0)])))
             .expect(1)
             .mount(&server)
             .await;
@@ -184,11 +178,7 @@ mod tests {
 
     async fn jev_answering(answers: Value) -> MockServer {
         let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path("/api/alpha/decisions"))
-            .respond_with(responding_with(answers))
-            .mount(&server)
-            .await;
+        mount_jev_answers(&server, answers).await;
         server
     }
 

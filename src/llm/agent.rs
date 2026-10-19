@@ -154,7 +154,6 @@ impl From<StructuredOutputError> for LlmError {
 
 #[cfg(test)]
 mod tests {
-    use rig_core::message::{ToolCall, ToolResult, ToolResultContent, UserContent};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer};
 
@@ -162,7 +161,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::llm::test_support::{llm_request_bodies, mount_llm_replies, run_script_tools};
+    use crate::llm::test_support::{
+        assert_echo_tool_turn, llm_request_bodies, messages, mount_llm_replies, run_script_tools,
+    };
     use crate::sandbox::runtime::SandboxLimits;
     use crate::sandbox::test_support::echo_table;
     use crate::test_support::json_response;
@@ -204,36 +205,6 @@ mod tests {
         LlmClient::new("test-key", &server.uri())
     }
 
-    fn tool_call(message: Message) -> ToolCall {
-        let Message::Assistant(assistant) = message else {
-            panic!("expected an assistant message, got {message:?}");
-        };
-        let [AssistantContent::ToolCall(call)]: [AssistantContent; 1] =
-            assistant.content.try_into().unwrap()
-        else {
-            panic!("expected one tool call");
-        };
-        call
-    }
-
-    fn tool_result(message: Message) -> ToolResult {
-        let Message::User { content } = message else {
-            panic!("expected a user message, got {message:?}");
-        };
-        let [UserContent::ToolResult(result)]: [UserContent; 1] = content.try_into().unwrap()
-        else {
-            panic!("expected one tool result");
-        };
-        result
-    }
-
-    fn messages(turn_messages: Vec<Value>) -> Vec<Message> {
-        turn_messages
-            .into_iter()
-            .map(|json| serde_json::from_value(json).unwrap())
-            .collect()
-    }
-
     #[tokio::test]
     async fn run_returns_the_final_text_without_tools() {
         let server = chat_server(&[FINAL_TEXT]).await;
@@ -271,21 +242,6 @@ mod tests {
 
         assert_eq!(result.text, "");
         assert_echo_tool_turn(messages(result.turn_messages));
-    }
-
-    /// Asserts that the turn is one `run_script` call of `test.echo({ a: 1 })` and its result.
-    fn assert_echo_tool_turn(turn: Vec<Message>) {
-        let [call, result]: [Message; 2] = turn.try_into().unwrap();
-        let call = tool_call(call);
-        assert_eq!(call.function.name.as_str(), "run_script");
-        assert_eq!(
-            Value::from(call.function.arguments),
-            json!({ "code": "return await test.echo({ a: 1 })" })
-        );
-        assert_eq!(
-            tool_result(result).content,
-            vec![ToolResultContent::text(r#"{"value":{"a":1}}"#)]
-        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

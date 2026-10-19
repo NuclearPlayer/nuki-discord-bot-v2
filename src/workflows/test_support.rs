@@ -73,6 +73,7 @@ fn without_attachments(message: ChatMessage) -> ResolvedMessage {
     ResolvedMessage {
         message,
         attachments: vec![],
+        thread: None,
     }
 }
 

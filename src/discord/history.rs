@@ -12,6 +12,7 @@ use crate::discord::authors::authors_of;
 use crate::discord::chat_message::ChatMessage;
 use crate::discord::http_error::is_not_found;
 use crate::discord::pipeline::first_message;
+use crate::discord::thread_marker::ThreadMarker;
 use crate::store::intakes::Intake;
 
 /// Discord gives at most 100 messages in one request.
@@ -194,8 +195,25 @@ async fn resolve(
     let input_modalities = input_modalities(app, &chat_messages).await?;
     let resolved = chat_messages
         .iter()
-        .map(|chat_message| resolve_message(chat_message, &input_modalities, &app.rest));
+        .zip(&messages)
+        .map(|(chat_message, message)| {
+            resolve_message(
+                chat_message,
+                started_marker(message),
+                &input_modalities,
+                &app.rest,
+            )
+        });
     Ok(try_join_all(resolved).await?)
+}
+
+/// The thread that `message` started, from the `thread` object that Discord gives on a starter
+/// message.
+fn started_marker(message: &Message) -> Option<ThreadMarker> {
+    message.thread.as_ref().map(|thread| ThreadMarker::Started {
+        name: thread.name.clone(),
+        reply_count: thread.message_count.unwrap_or(0),
+    })
 }
 
 /// The input modalities that OpenRouter lists now for the active model. Messages without
@@ -211,4 +229,34 @@ async fn input_modalities(app: &App, messages: &[ChatMessage]) -> anyhow::Result
         .models
         .input_modalities(&app.active_model.current())
         .await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const THREAD_STARTER: &str =
+        include_str!("../../tests/fixtures/discord/history_thread_starter.json");
+    const PLAIN_MESSAGE: &str =
+        include_str!("../../tests/fixtures/discord/context_message_with_attachment.json");
+
+    #[test]
+    fn a_message_that_started_a_thread_has_the_name_and_the_reply_count_of_the_thread() {
+        let message: Message = serde_json::from_str(THREAD_STARTER).unwrap();
+
+        assert_eq!(
+            started_marker(&message),
+            Some(ThreadMarker::Started {
+                name: "nuclear is playing wrong streams, what should I do?".to_string(),
+                reply_count: 5,
+            })
+        );
+    }
+
+    #[test]
+    fn a_message_without_a_thread_has_no_marker() {
+        let message: Message = serde_json::from_str(PLAIN_MESSAGE).unwrap();
+
+        assert_eq!(started_marker(&message), None);
+    }
 }

@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use crate::discord::attachments::{ResolvedAttachment, ResolvedMessage};
 use crate::discord::chat_message::ChatMessage;
+use crate::discord::thread_marker::ThreadMarker;
 
 pub fn header(message: &ChatMessage) -> String {
     let timestamp = message.timestamp.to_rfc3339_opts(SecondsFormat::Secs, true);
@@ -30,7 +31,8 @@ fn roles_text(roles: &[String]) -> String {
     }
 }
 
-/// One entry per message: the header, then the label of each attachment on its own line.
+/// One entry per message: the header, then the label of each attachment and the thread that the
+/// message started, each on its own line.
 pub fn jev_lines(messages: &[ResolvedMessage]) -> Vec<String> {
     messages
         .iter()
@@ -42,6 +44,7 @@ pub fn jev_lines(messages: &[ResolvedMessage]) -> Vec<String> {
                         .iter()
                         .map(|attachment| attachment.label().to_string()),
                 )
+                .chain(started_line(resolved))
                 .collect::<Vec<_>>()
                 .join("\n")
         })
@@ -74,9 +77,11 @@ fn stored_turn(
         .collect()
 }
 
-/// A message of Nuki is an assistant turn, unless it has attachments: an assistant turn cannot contain them.
+/// A message of Nuki is an assistant turn, unless it has attachments or a thread marker: an
+/// assistant turn cannot contain them.
 fn turn(resolved: &ResolvedMessage) -> Message {
-    if resolved.message.is_nuki && resolved.attachments.is_empty() {
+    let is_plain = resolved.attachments.is_empty() && resolved.thread.is_none();
+    if resolved.message.is_nuki && is_plain {
         Message::assistant(resolved.message.content.clone())
     } else {
         user_turn(resolved)
@@ -86,11 +91,32 @@ fn turn(resolved: &ResolvedMessage) -> Message {
 fn user_turn(resolved: &ResolvedMessage) -> Message {
     let header_part = UserContent::text(header(&resolved.message));
     let attachment_parts = resolved.attachments.iter().flat_map(attachment_parts);
+    let started_part = started_line(resolved).map(UserContent::text);
     Message::from(
         std::iter::once(header_part)
             .chain(attachment_parts)
+            .chain(started_part)
             .collect::<Vec<_>>(),
     )
+}
+
+/// The line after the attachment labels of a message that started a thread.
+fn started_line(resolved: &ResolvedMessage) -> Option<String> {
+    match &resolved.thread {
+        Some(ThreadMarker::Started { name, reply_count }) => Some(format!(
+            "[this message started the thread \"{name}\" · {}]",
+            replies_text(*reply_count)
+        )),
+        Some(ThreadMarker::Opens { .. }) | None => None,
+    }
+}
+
+fn replies_text(count: u32) -> String {
+    if count == 1 {
+        "1 reply".to_string()
+    } else {
+        format!("{count} replies")
+    }
 }
 
 fn attachment_parts(attachment: &ResolvedAttachment) -> Vec<UserContent> {
@@ -127,7 +153,15 @@ mod tests {
         ResolvedMessage {
             message,
             attachments,
+            thread: None,
         }
+    }
+
+    fn started(reply_count: u32) -> Option<ThreadMarker> {
+        Some(ThreadMarker::Started {
+            name: "nuclear is playing wrong streams, what should I do?".to_string(),
+            reply_count,
+        })
     }
 
     fn image(label: &str) -> ResolvedAttachment {
@@ -188,6 +222,94 @@ mod tests {
                 "[2026-10-19T12:35:00Z][msg:2][Bob (1300000000000000002) · roles: Linux, supporter]: see these\n[attachment 10: cat.png]\n[attachment 11: player.log]"
                     .to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn the_jev_line_of_a_message_that_started_a_thread_ends_with_the_thread() {
+        let messages = [ResolvedMessage {
+            thread: started(5),
+            ..resolved(
+                user_message(1, "nuclear is playing wrong streams, what should I do?"),
+                vec![image("[attachment 10: cat.png]")],
+            )
+        }];
+
+        assert_eq!(
+            jev_lines(&messages),
+            vec![
+                "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · roles: Linux, supporter]: nuclear is playing wrong streams, what should I do?\n[attachment 10: cat.png]\n[this message started the thread \"nuclear is playing wrong streams, what should I do?\" · 5 replies]"
+                    .to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_thread_with_one_reply_says_reply() {
+        let messages = [ResolvedMessage {
+            thread: started(1),
+            ..resolved(user_message(1, "hello"), vec![])
+        }];
+
+        assert_eq!(
+            jev_lines(&messages),
+            vec![
+                "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · roles: Linux, supporter]: hello\n[this message started the thread \"nuclear is playing wrong streams, what should I do?\" · 1 reply]"
+                    .to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_turn_of_a_message_that_started_a_thread_ends_with_the_thread() {
+        let messages = [ResolvedMessage {
+            thread: started(5),
+            ..resolved(
+                user_message(1, "see this"),
+                vec![image("[attachment 10: cat.png]")],
+            )
+        }];
+
+        let history = build_history(&messages, &HashMap::new()).unwrap();
+
+        assert_eq!(
+            history,
+            vec![Message::from(vec![
+                UserContent::text(
+                    "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · roles: Linux, supporter]: see this"
+                ),
+                UserContent::text("[attachment 10: cat.png]"),
+                UserContent::image_url(
+                    "https://cdn.discordapp.com/attachments/1/2/cat.png",
+                    None,
+                    None
+                ),
+                UserContent::text(
+                    "[this message started the thread \"nuclear is playing wrong streams, what should I do?\" · 5 replies]"
+                ),
+            ])]
+        );
+    }
+
+    #[test]
+    fn a_message_of_nuki_that_started_a_thread_is_a_user_turn() {
+        let messages = [ResolvedMessage {
+            thread: started(5),
+            ..resolved(nuki_message(2, "Let's look at it in a thread."), vec![])
+        }];
+
+        let history = build_history(&messages, &HashMap::new()).unwrap();
+
+        assert_eq!(
+            history,
+            vec![Message::from(vec![
+                UserContent::text(
+                    "[2026-10-19T12:35:00Z][msg:2][Nuki (1700000000000000001) · roles: none]: Let's look at it in a thread."
+                ),
+                UserContent::text(
+                    "[this message started the thread \"nuclear is playing wrong streams, what should I do?\" · 5 replies]"
+                ),
+            ])]
         );
     }
 

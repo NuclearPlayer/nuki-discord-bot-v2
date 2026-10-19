@@ -13,4 +13,5 @@ pub mod pipeline;
 pub mod reply;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub mod thread_marker;
 pub mod turn_context;

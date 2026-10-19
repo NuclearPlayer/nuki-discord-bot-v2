@@ -5,6 +5,7 @@ use rig_core::message::{AudioMediaType, VideoMediaType};
 
 use crate::discord::chat_message::{AttachmentMeta, ChatMessage};
 use crate::discord::modality::{Modality, audio_media_type, video_media_type};
+use crate::discord::thread_marker::ThreadMarker;
 
 const TEXT_LIMIT_BYTES: u64 = 20_000;
 
@@ -49,6 +50,7 @@ impl ResolvedAttachment {
 pub struct ResolvedMessage {
     pub message: ChatMessage,
     pub attachments: Vec<ResolvedAttachment>,
+    pub thread: Option<ThreadMarker>,
 }
 
 pub async fn resolve(
@@ -112,6 +114,7 @@ fn other(attachment: &AttachmentMeta) -> ResolvedAttachment {
 
 pub async fn resolve_message(
     message: &ChatMessage,
+    thread: Option<ThreadMarker>,
     input_modalities: &[String],
     http: &reqwest::Client,
 ) -> Result<ResolvedMessage, reqwest::Error> {
@@ -125,6 +128,7 @@ pub async fn resolve_message(
     Ok(ResolvedMessage {
         message: message.clone(),
         attachments,
+        thread,
     })
 }
 

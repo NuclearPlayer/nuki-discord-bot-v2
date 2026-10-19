@@ -7,8 +7,8 @@ use wiremock::MockServer;
 
 use super::{TurnContext, WorkflowDeps};
 use crate::decisions::client::JevClient;
-use crate::discord::attachments::ResolvedMessage;
 use crate::discord::chat_message::ChatMessage;
+use crate::discord::test_support::resolved;
 use crate::llm::agent::LlmClient;
 use crate::llm::selection::ActiveModel;
 use crate::prompts::system::RuntimeContext;
@@ -57,7 +57,10 @@ pub(crate) async fn context(trigger: Trigger, messages: Vec<ChatMessage>) -> Tur
     TurnContext {
         trigger,
         channel_name: "general".to_string(),
-        history: messages.into_iter().map(without_attachments).collect(),
+        history: messages
+            .into_iter()
+            .map(|message| resolved(message, vec![]))
+            .collect(),
         unit_len: 1,
         stored_turns: HashMap::new(),
         runtime: runtime(),
@@ -66,14 +69,6 @@ pub(crate) async fn context(trigger: Trigger, messages: Vec<ChatMessage>) -> Tur
             SandboxLimits::production(),
         )),
         stats: unrecorded_run().await,
-    }
-}
-
-fn without_attachments(message: ChatMessage) -> ResolvedMessage {
-    ResolvedMessage {
-        message,
-        attachments: vec![],
-        thread: None,
     }
 }
 

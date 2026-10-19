@@ -31,25 +31,40 @@ fn roles_text(roles: &[String]) -> String {
     }
 }
 
-/// One entry per message: the thread that the message opens, the header, the label of each
-/// attachment, and the thread that the message started, each on its own line.
+/// One entry per message: the parts of `message_parts`, with the label of each attachment, each
+/// on its own line.
 pub fn jev_lines(messages: &[ResolvedMessage]) -> Vec<String> {
     messages
         .iter()
         .map(|resolved| {
-            opens_line(resolved)
-                .into_iter()
-                .chain([header(&resolved.message)])
-                .chain(
-                    resolved
-                        .attachments
-                        .iter()
-                        .map(|attachment| attachment.label().to_string()),
-                )
-                .chain(started_line(resolved))
-                .collect::<Vec<_>>()
-                .join("\n")
+            message_parts(
+                resolved,
+                |line| line,
+                |attachment| vec![attachment.label().to_string()],
+            )
+            .join("\n")
         })
+        .collect()
+}
+
+/// The parts of a message in their sequence: the line of the thread that it opens, the header,
+/// the parts of each attachment, and the line of the thread that it started. `text` makes a part
+/// from a line, and `attachment` makes the parts of an attachment.
+fn message_parts<T>(
+    resolved: &ResolvedMessage,
+    text: impl Fn(String) -> T,
+    attachment: impl Fn(&ResolvedAttachment) -> Vec<T>,
+) -> Vec<T> {
+    let marker = resolved.thread.as_ref();
+    let opens = marker.and_then(opens_line).map(&text);
+    let header_part = text(header(&resolved.message));
+    let attachment_parts = resolved.attachments.iter().flat_map(attachment);
+    let started = marker.and_then(started_line).map(&text);
+    opens
+        .into_iter()
+        .chain([header_part])
+        .chain(attachment_parts)
+        .chain(started)
         .collect()
 }
 
@@ -91,51 +106,41 @@ fn turn(resolved: &ResolvedMessage) -> Message {
 }
 
 fn user_turn(resolved: &ResolvedMessage) -> Message {
-    let opens_part = opens_line(resolved).map(UserContent::text);
-    let header_part = UserContent::text(header(&resolved.message));
-    let attachment_parts = resolved.attachments.iter().flat_map(attachment_parts);
-    let started_part = started_line(resolved).map(UserContent::text);
-    Message::from(
-        opens_part
-            .into_iter()
-            .chain([header_part])
-            .chain(attachment_parts)
-            .chain(started_part)
-            .collect::<Vec<_>>(),
-    )
+    Message::from(message_parts(resolved, UserContent::text, attachment_parts))
 }
 
-/// The line before the header of the first message in the history of a thread.
-fn opens_line(resolved: &ResolvedMessage) -> Option<String> {
-    match &resolved.thread {
-        Some(ThreadMarker::Opens {
+/// The thread header before the header of the message that opens the history of a thread.
+fn opens_line(marker: &ThreadMarker) -> Option<String> {
+    match marker {
+        ThreadMarker::Opens {
             name,
             parent_channel_name,
             reply_count,
             has_starter,
-        }) => {
+        } => {
             let thread = format!(
                 "thread \"{name}\" in #{parent_channel_name} · {}",
                 replies_text(*reply_count)
             );
-            if *has_starter {
-                Some(format!("[{thread} · started from this message:]"))
+            let line = if *has_starter {
+                format!("[{thread} · started from this message:]")
             } else {
-                Some(format!("[{thread}]"))
-            }
+                format!("[{thread}]")
+            };
+            Some(line)
         }
-        Some(ThreadMarker::Started { .. }) | None => None,
+        ThreadMarker::Started { .. } => None,
     }
 }
 
 /// The line after the attachment labels of a message that started a thread.
-fn started_line(resolved: &ResolvedMessage) -> Option<String> {
-    match &resolved.thread {
-        Some(ThreadMarker::Started { name, reply_count }) => Some(format!(
+fn started_line(marker: &ThreadMarker) -> Option<String> {
+    match marker {
+        ThreadMarker::Started { name, reply_count } => Some(format!(
             "[this message started the thread \"{name}\" · {}]",
             replies_text(*reply_count)
         )),
-        Some(ThreadMarker::Opens { .. }) | None => None,
+        ThreadMarker::Opens { .. } => None,
     }
 }
 
@@ -181,6 +186,15 @@ mod tests {
         Some(ThreadMarker::Started {
             name: "nuclear is playing wrong streams, what should I do?".to_string(),
             reply_count,
+        })
+    }
+
+    fn opens(has_starter: bool) -> Option<ThreadMarker> {
+        Some(ThreadMarker::Opens {
+            name: "nuclear is playing wrong streams, what should I do?".to_string(),
+            parent_channel_name: "general".to_string(),
+            reply_count: 5,
+            has_starter,
         })
     }
 
@@ -331,15 +345,6 @@ mod tests {
                 ),
             ])]
         );
-    }
-
-    fn opens(has_starter: bool) -> Option<ThreadMarker> {
-        Some(ThreadMarker::Opens {
-            name: "nuclear is playing wrong streams, what should I do?".to_string(),
-            parent_channel_name: "general".to_string(),
-            reply_count: 5,
-            has_starter,
-        })
     }
 
     #[test]

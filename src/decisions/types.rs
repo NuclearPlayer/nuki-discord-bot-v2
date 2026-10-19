@@ -36,4 +36,15 @@ pub enum Answer {
 #[derive(Debug, Deserialize)]
 pub struct DecisionResponse {
     pub answers: IndexMap<String, Answer>,
+    /// The Jev model that answered.
+    pub model: Option<String>,
+    pub usage: Option<JevUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct JevUsage {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    /// In USD.
+    pub cost: Option<f64>,
 }

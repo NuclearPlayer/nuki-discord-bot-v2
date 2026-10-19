@@ -10,10 +10,11 @@ use crate::app::App;
 use crate::discord::attachments::ResolvedMessage;
 use crate::prompts::system::{CustomEmoji, RuntimeContext};
 use crate::routing::trigger::Trigger;
+use crate::stats::recorder::RunStats;
 use crate::workflows::TurnContext;
 
 /// The turn context in the server `guild_id`, with the stored tool turns of the messages of the
-/// history.
+/// history, in the run of `stats`.
 pub async fn turn_context(
     app: &App,
     guild_id: GuildId,
@@ -21,6 +22,7 @@ pub async fn turn_context(
     channel_name: &str,
     history: Vec<ResolvedMessage>,
     unit_len: usize,
+    stats: RunStats,
 ) -> anyhow::Result<TurnContext> {
     let stored_turns = stored_turns(app, &history).await?;
     Ok(TurnContext {
@@ -31,6 +33,7 @@ pub async fn turn_context(
         stored_turns,
         runtime: runtime_context(app, guild_id, channel_name).await?,
         sandbox: app.sandbox_for(guild_id),
+        stats,
     })
 }
 

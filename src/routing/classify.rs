@@ -8,6 +8,8 @@ use super::trigger::ClassifiedTrigger;
 use crate::decisions::client::{DecisionError, JevClient};
 use crate::decisions::types::{Answer, Question};
 use crate::prompts::questions::category;
+use crate::stats::event::JevPurpose;
+use crate::stats::recorder::RunStats;
 
 const CATEGORY_QUESTION: &str = "category";
 
@@ -54,10 +56,14 @@ impl Classifier {
         trigger: ClassifiedTrigger,
         history_lines: &[String],
         new_lines: &[String],
+        stats: &RunStats,
     ) -> Result<Classification, ClassifyError> {
         let state = json!({ "messages": history_lines, "new_messages": new_lines });
         let questions = indexmap! { CATEGORY_QUESTION.to_string() => category_question(trigger) };
-        let mut answers = self.jev.decide(state, questions).await?;
+        let mut answers = self
+            .jev
+            .decide(state, questions, stats, JevPurpose::Category)
+            .await?;
         match answers.shift_remove(CATEGORY_QUESTION) {
             Some(Answer::Choice { probabilities, .. }) => classification_of(probabilities),
             Some(_) => Err(ClassifyError::UnexpectedAnswer),
@@ -106,6 +112,7 @@ fn classification_of(
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use indexmap::indexmap;
     use serde_json::{Value, json};
     use wiremock::matchers::{body_json, method, path};
@@ -114,6 +121,7 @@ mod tests {
     use super::*;
     use crate::decisions::client::{DECISIONS_PATH, JEV_MODEL};
     use crate::decisions::test_support::{jev_response, mount_jev_answers};
+    use crate::stats::test_support::{events_between, run_event, test_run, unrecorded_run};
 
     fn history() -> Vec<String> {
         vec!["alice: does anyone know how to add a plugin?".to_string()]
@@ -188,11 +196,19 @@ mod tests {
         server: &MockServer,
         trigger: ClassifiedTrigger,
     ) -> Result<Classification, ClassifyError> {
+        classify_in_run(server, trigger, &unrecorded_run().await).await
+    }
+
+    async fn classify_in_run(
+        server: &MockServer,
+        trigger: ClassifiedTrigger,
+        stats: &RunStats,
+    ) -> Result<Classification, ClassifyError> {
         Classifier::new(Arc::new(JevClient::new(
             "test-key".to_string(),
             server.uri(),
         )))
-        .classify(trigger, &history(), &new_lines())
+        .classify(trigger, &history(), &new_lines(), stats)
         .await
     }
 
@@ -229,19 +245,38 @@ mod tests {
 
     #[tokio::test]
     async fn classify_maps_the_probabilities_to_categories() {
-        let server = jev_answering(answer_with(&[
+        let answers = answer_with(&[
             ("help_request", 0.78),
             ("bug_report", 0.10),
             ("feature_request", 0.02),
             ("chat", 0.07),
             ("ignore", 0.03),
-        ]))
-        .await;
+        ]);
+        let server = jev_answering(answers.clone()).await;
+        let (store, stats) = test_run().await;
+        let before = Utc::now();
 
-        let classification = classify_against(&server, ClassifiedTrigger::Unsolicited)
+        let classification = classify_in_run(&server, ClassifiedTrigger::Unsolicited, &stats)
             .await
             .unwrap();
 
+        let after = Utc::now();
+        assert_eq!(
+            events_between(&store, before, after).await,
+            vec![run_event(
+                "jev.call",
+                json!({
+                    "purpose": "category",
+                    "questions": ["category"],
+                    "answers": answers,
+                    "model": "typesafe/jev-1.14-20261014",
+                    "input_tokens": null,
+                    "output_tokens": null,
+                    "cost_usd": null,
+                    "error": null,
+                })
+            )]
+        );
         assert_eq!(
             classification,
             Classification {

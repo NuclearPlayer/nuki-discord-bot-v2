@@ -14,6 +14,7 @@ use crate::discord::reply::{AppliedTurn, apply_intake_outcome, thread_name};
 use crate::discord::turn_context::turn_context;
 use crate::routing::category::Category;
 use crate::routing::trigger::Trigger;
+use crate::stats::recorder::{RunStats, run_id_of_timeout, run_id_of_unit};
 use crate::store::intakes::{Intake, IntakeKind, NewIntake};
 use crate::workflows::{Outcome, TurnContext};
 
@@ -47,7 +48,8 @@ pub(super) async fn continue_intake(
             .touch(intake.id, *last.timestamp)
             .await?;
     }
-    let ctx = thread_turn_context(app, &intake, unit.len()).await?;
+    let run_id = run_id_of_unit(last.id.get());
+    let ctx = thread_turn_context(app, &intake, unit.len(), run_id).await?;
     let _typing = last.channel_id.start_typing(&app.http);
     let outcome = app.intake.run_turn(&ctx, &intake).await?;
     let applied = AppliedTurn {
@@ -79,7 +81,8 @@ async fn postpone(app: &App, intake: &Intake) {
 
 /// Sends the report of the intake. An intake whose thread was deleted is closed without a report.
 async fn complete_or_close(app: &App, intake: &Intake) -> anyhow::Result<()> {
-    let ctx = match thread_turn_context(app, intake, 0).await {
+    let run_id = run_id_of_timeout(intake.id, Utc::now());
+    let ctx = match thread_turn_context(app, intake, 0, run_id).await {
         Ok(ctx) => ctx,
         Err(error) if is_deleted(&error) => return close_deleted(app, intake).await,
         Err(error) => return Err(error),
@@ -113,13 +116,18 @@ async fn close_deleted(app: &App, intake: &Intake) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The turn context of the intake in the server of its thread, with the history of the thread.
+/// The turn context of the intake: the server and the history of its thread, and the recorder of
+/// the run `run_id` in the thread.
 async fn thread_turn_context(
     app: &App,
     intake: &Intake,
     unit_len: usize,
+    run_id: String,
 ) -> anyhow::Result<TurnContext> {
     let thread = fetch_channel(app, ChannelId::new(intake.thread_id)).await?;
+    let stats = app
+        .stats
+        .run(run_id, thread.guild_id.get(), intake.thread_id);
     let history = fetch_thread_history(app, thread.guild_id, intake).await?;
     turn_context(
         app,
@@ -128,6 +136,7 @@ async fn thread_turn_context(
         &thread.name,
         history,
         unit_len,
+        stats,
     )
     .await
 }
@@ -139,6 +148,7 @@ pub(super) async fn start_intake(
     channel: &GuildChannel,
     trigger: Trigger,
     kind: IntakeKind,
+    stats: RunStats,
 ) -> anyhow::Result<()> {
     let last = last_message(unit);
     let thread = intake_thread(app, channel, last).await?;
@@ -157,7 +167,16 @@ pub(super) async fn start_intake(
         .await?;
     let guild_id = channel.guild_id;
     let history = fetch_thread_history(app, guild_id, &intake).await?;
-    let ctx = turn_context(app, guild_id, trigger, &thread.name, history, unit.len()).await?;
+    let ctx = turn_context(
+        app,
+        guild_id,
+        trigger,
+        &thread.name,
+        history,
+        unit.len(),
+        stats,
+    )
+    .await?;
     let outcome = app.intake.run_turn(&ctx, &intake).await?;
     let applied = AppliedTurn {
         channel_id: thread.id,

@@ -5,6 +5,8 @@ use serde_json::json;
 use crate::decisions::client::JevClient;
 use crate::decisions::types::{Answer, Question};
 use crate::prompts::questions::{bug_fields, feature_fields};
+use crate::stats::event::JevPurpose;
+use crate::stats::recorder::RunStats;
 use crate::store::intakes::IntakeKind;
 
 /// A field is present only if Jev gives a probability of yes above this value.
@@ -15,12 +17,15 @@ pub async fn missing_fields(
     jev: &JevClient,
     kind: IntakeKind,
     conversation: Vec<String>,
+    stats: &RunStats,
 ) -> anyhow::Result<Vec<String>> {
     let fields = checklist(kind);
     let answers = jev
         .decide(
             json!({ "conversation": conversation }),
             noul_questions(fields),
+            stats,
+            JevPurpose::IntakeFields,
         )
         .await?;
     let probabilities = fields
@@ -63,11 +68,13 @@ fn probability_of_yes(answers: &IndexMap<String, Answer>, field: &str) -> anyhow
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use serde_json::Value;
     use wiremock::MockServer;
 
     use super::*;
     use crate::decisions::test_support::{jev_request_bodies, mount_jev_answers};
+    use crate::stats::test_support::{events_between, run_event, test_run, unrecorded_run};
     use crate::workflows::test_support::bug_fields_missing;
 
     fn conversation() -> Vec<String> {
@@ -77,9 +84,9 @@ mod tests {
         ]
     }
 
-    async fn bug_fields_against(server: &MockServer) -> Vec<String> {
+    async fn bug_fields_against(server: &MockServer, stats: &RunStats) -> Vec<String> {
         let jev = JevClient::new("jev-key".to_string(), server.uri());
-        missing_fields(&jev, IntakeKind::Bug, conversation())
+        missing_fields(&jev, IntakeKind::Bug, conversation(), stats)
             .await
             .unwrap()
     }
@@ -88,10 +95,29 @@ mod tests {
     async fn missing_fields_returns_the_fields_at_or_below_one_half() {
         let server = MockServer::start().await;
         mount_jev_answers(&server, bug_fields_missing()).await;
+        let (store, stats) = test_run().await;
+        let before = Utc::now();
 
-        let missing = bug_fields_against(&server).await;
+        let missing = bug_fields_against(&server, &stats).await;
 
+        let after = Utc::now();
         assert_eq!(missing, ["platform", "plugins"]);
+        assert_eq!(
+            events_between(&store, before, after).await,
+            vec![run_event(
+                "jev.call",
+                json!({
+                    "purpose": "intake_fields",
+                    "questions": ["version", "platform", "plugins", "sources", "item"],
+                    "answers": bug_fields_missing(),
+                    "model": "typesafe/jev-1.14-20261014",
+                    "input_tokens": null,
+                    "output_tokens": null,
+                    "cost_usd": null,
+                    "error": null,
+                })
+            )]
+        );
     }
 
     #[tokio::test]
@@ -99,7 +125,7 @@ mod tests {
         let server = MockServer::start().await;
         mount_jev_answers(&server, bug_fields_missing()).await;
 
-        bug_fields_against(&server).await;
+        bug_fields_against(&server, &unrecorded_run().await).await;
 
         let expected: Value = serde_json::from_str(include_str!(
             "../../../tests/fixtures/workflows/intake_bug_fields_request.json"

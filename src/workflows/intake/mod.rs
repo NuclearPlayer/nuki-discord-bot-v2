@@ -55,7 +55,13 @@ impl IntakeWorkflow {
         ctx: &TurnContext,
         intake: &Intake,
     ) -> anyhow::Result<Vec<String>> {
-        missing_fields(&self.deps.jev, intake.kind, jev_lines(&ctx.history)).await
+        missing_fields(
+            &self.deps.jev,
+            intake.kind,
+            jev_lines(&ctx.history),
+            &ctx.stats,
+        )
+        .await
     }
 
     async fn ask_for(
@@ -118,12 +124,24 @@ impl IntakeWorkflow {
         let llm = &self.deps.llm;
         let body = match intake.kind {
             IntakeKind::Bug => ReportBody::Bug(
-                llm.extract(&model, &system_prompt, history, REPORT_INSTRUCTION)
-                    .await?,
+                llm.extract(
+                    &model,
+                    &system_prompt,
+                    history,
+                    REPORT_INSTRUCTION,
+                    &ctx.stats,
+                )
+                .await?,
             ),
             IntakeKind::Feature => ReportBody::Feature(
-                llm.extract(&model, &system_prompt, history, REPORT_INSTRUCTION)
-                    .await?,
+                llm.extract(
+                    &model,
+                    &system_prompt,
+                    history,
+                    REPORT_INSTRUCTION,
+                    &ctx.stats,
+                )
+                .await?,
             ),
         };
         Ok(Report {
@@ -208,6 +226,7 @@ mod tests {
         KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_BUG_INTAKE, WORKFLOW_FEATURE_INTAKE,
     };
     use crate::routing::trigger::Trigger;
+    use crate::stats::test_support::{events_between, of_kind, run_event, test_run};
     use crate::store::intakes::IntakeStatus;
     use crate::workflows::Reply;
     use crate::workflows::test_support::{
@@ -389,7 +408,8 @@ mod tests {
                 nuki_message(2, "Which Nuclear version do you use?"),
                 user_message(3, "v1.4.0, with MusicBrainz and YouTube, on any album"),
             ],
-        );
+        )
+        .await;
 
         let outcome = workflow(&server)
             .await
@@ -438,7 +458,8 @@ mod tests {
         let ctx = context(
             Trigger::IntakeThread,
             vec![user_message(1, "could Nuclear get a sleep timer?")],
-        );
+        )
+        .await;
 
         workflow(&server)
             .await
@@ -465,7 +486,7 @@ mod tests {
             &[RUN_SCRIPT_CALL, BUG_FINAL_REPLY, BUG_REPORT_SUBMIT],
         )
         .await;
-        let ctx = context(Trigger::IntakeThread, complete_bug_conversation());
+        let ctx = context(Trigger::IntakeThread, complete_bug_conversation()).await;
 
         let outcome = workflow(&server)
             .await
@@ -500,7 +521,12 @@ mod tests {
         let server = MockServer::start().await;
         mount_jev_answers(&server, bug_fields_present()).await;
         mount_llm_replies(&server, &[EMPTY_FINAL_TEXT, BUG_REPORT_SUBMIT]).await;
-        let ctx = context(Trigger::IntakeThread, complete_bug_conversation());
+        let (store, stats) = test_run().await;
+        let ctx = TurnContext {
+            stats,
+            ..context(Trigger::IntakeThread, complete_bug_conversation()).await
+        };
+        let before = Utc::now();
 
         let outcome = workflow(&server)
             .await
@@ -508,6 +534,7 @@ mod tests {
             .await
             .unwrap();
 
+        let after = Utc::now();
         assert_eq!(
             outcome,
             Outcome::Intake {
@@ -515,17 +542,80 @@ mod tests {
                 report: Some(complete_bug_report()),
             }
         );
+        let submit: Value = serde_json::from_str(BUG_REPORT_SUBMIT).unwrap();
+        let submitted_text =
+            &submit["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"];
+        let submitted: Value = serde_json::from_str(submitted_text.as_str().unwrap()).unwrap();
+        let events = events_between(&store, before, after).await;
+        let extract_calls: Vec<_> = of_kind(events.clone(), "llm.call")
+            .into_iter()
+            .filter(|event| event.data["purpose"] == "extract")
+            .collect();
+        assert_eq!(
+            of_kind(events, "jev.call"),
+            vec![run_event(
+                "jev.call",
+                json!({
+                    "purpose": "intake_fields",
+                    "questions": ["version", "platform", "plugins", "sources", "item"],
+                    "answers": bug_fields_present(),
+                    "model": "typesafe/jev-1.14-20261014",
+                    "input_tokens": null,
+                    "output_tokens": null,
+                    "cost_usd": null,
+                    "error": null,
+                })
+            )]
+        );
+        assert_eq!(
+            extract_calls,
+            vec![run_event(
+                "llm.call",
+                json!({
+                    "purpose": "extract",
+                    "call_index": 1,
+                    "requested_model": "test/model",
+                    "response_model": "test/model",
+                    "provider": null,
+                    "response_id": "gen-intake-report",
+                    "input_tokens": 90,
+                    "output_tokens": 60,
+                    "total_tokens": 150,
+                    "cached_input_tokens": null,
+                    "cache_write_tokens": null,
+                    "reasoning_tokens": null,
+                    "cost_usd": null,
+                    "cost_estimated": false,
+                    "finish_reason": "tool_calls",
+                    "output": [{
+                        "type": "toolcall",
+                        "id": { "provider": "call_submit" },
+                        "function": { "name": "submit", "arguments": submitted },
+                        "native": {
+                            "item": {
+                                "id": "call_submit",
+                                "type": "function",
+                                "function": { "name": "submit", "arguments": submitted_text }
+                            },
+                            // Rig's hash of the tools and the system prompt of the request.
+                            "fingerprint": "7c0d5eeed8cb7cc9"
+                        }
+                    }],
+                })
+            )]
+        );
     }
 
-    #[test]
-    fn an_empty_final_text_stays_out_of_the_report_history() {
+    #[tokio::test]
+    async fn an_empty_final_text_stays_out_of_the_report_history() {
         let ctx = context(
             Trigger::IntakeThread,
             vec![
                 user_message(1, "playback stops after one track, v1.4.0"),
                 nuki_message(2, "Which operating system are you on?"),
             ],
-        );
+        )
+        .await;
         let last_turn = TurnResult {
             text: String::new(),
             turn_messages: vec![],
@@ -554,7 +644,8 @@ mod tests {
                 user_message(2, "playback stops after one track, v1.4.0"),
                 nuki_message(3, "Which operating system are you on?"),
             ],
-        );
+        )
+        .await;
 
         let report = workflow(&server)
             .await
@@ -582,7 +673,8 @@ mod tests {
                     "Which operating system are you on, and which plugins do you use?",
                 ),
             ],
-        );
+        )
+        .await;
 
         let report = workflow(&server)
             .await

@@ -277,7 +277,8 @@ mod tests {
                 const file = await repo.readFile({ repo: 'test/origin', path: 'src/player.js', startLine: 1, endLine: 3 });
                 return { matches, file };",
             )
-            .await;
+            .await
+            .outcome;
 
         assert_eq!(
             outcome,
@@ -308,7 +309,8 @@ mod tests {
                 const shown = await repo.gitShow({ repo: 'test/origin', rev: 'v1.0.0:README.md' });
                 return { repos, entries, tags, shown };",
             )
-            .await;
+            .await
+            .outcome;
 
         assert_eq!(
             outcome,
@@ -333,7 +335,8 @@ mod tests {
         let outcome = repos
             .sandbox
             .run("return await repo.gitLog({ repo: 'test/origin', range: 'v1.0.0..HEAD' });")
-            .await;
+            .await
+            .outcome;
 
         assert_eq!(outcome, value(json!([commit_3(), commit_2()])));
     }
@@ -347,7 +350,8 @@ mod tests {
             .run(
                 "try { await repo.listTags({ repo: 'test/unknown' }); } catch (e) { return e.message; }",
             )
-            .await;
+            .await
+            .outcome;
 
         assert_eq!(outcome, value(json!("unknown repository test/unknown")));
     }

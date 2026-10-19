@@ -1,0 +1,35 @@
+{
+  "id": "gen-tool-or",
+  "provider": "Google AI Studio",
+  "object": "chat.completion",
+  "created": 1789000000,
+  "model": "test/model-20261001",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_1",
+            "type": "function",
+            "function": {
+              "name": "run_script",
+              "arguments": "{\"code\":\"await test.echo({ a: 1 });\\nreturn await test.echo({ b: 2 });\"}"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1200,
+    "completion_tokens": 80,
+    "total_tokens": 1280,
+    "cost": 0.0042,
+    "prompt_tokens_details": { "cached_tokens": 1000, "cache_write_tokens": 150 },
+    "completion_tokens_details": { "reasoning_tokens": 30 }
+  }
+}

@@ -13,7 +13,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 use super::script_tool::run_script_tool;
+use super::stats_hook::StatsHook;
 use crate::sandbox::runtime::Sandbox;
+use crate::stats::event::LlmPurpose;
+use crate::stats::recorder::RunStats;
 use crate::store::settings::ModelSelection;
 
 /// The production base URL of the OpenRouter API.
@@ -42,6 +45,8 @@ pub struct TurnRequest {
     pub history: Vec<Message>,
     pub prompt: Message,
     pub sandbox: Option<Arc<Sandbox>>,
+    /// The recorder of the run that the turn is part of.
+    pub stats: RunStats,
 }
 
 #[derive(Debug, PartialEq)]
@@ -72,6 +77,11 @@ impl LlmClient {
             .prompt(request.prompt.clone())
             .history(request.history)
             .max_turns(MAX_MODEL_CALLS)
+            .add_hook(StatsHook::new(
+                request.stats,
+                LlmPurpose::Turn,
+                request.model.model_id,
+            ))
             .await?;
         Ok(TurnResult {
             text: response.output().trim().to_string(),
@@ -84,7 +94,7 @@ impl LlmClient {
             .preamble(&request.system_prompt);
         match &request.sandbox {
             Some(sandbox) => builder
-                .dynamic_tool(run_script_tool(Arc::clone(sandbox)))
+                .dynamic_tool(run_script_tool(Arc::clone(sandbox), request.stats.clone()))
                 .build(),
             None => builder.build(),
         }
@@ -96,6 +106,7 @@ impl LlmClient {
         system_prompt: &str,
         history: Vec<Message>,
         instruction: &str,
+        stats: &RunStats,
     ) -> Result<T, LlmError>
     where
         T: JsonSchema + DeserializeOwned + Serialize + Send + Sync + 'static,
@@ -103,7 +114,15 @@ impl LlmClient {
         let extractor = ExtractorBuilder::<T>::new(self.client.completion(&model.model_id))
             .append_preamble(system_prompt)
             .build();
-        let response = extractor.extract(instruction).history(history).await?;
+        let response = extractor
+            .extract(instruction)
+            .history(history)
+            .add_hook(StatsHook::new(
+                stats.clone(),
+                LlmPurpose::Extract,
+                model.model_id.clone(),
+            ))
+            .await?;
         Ok(response.output)
     }
 }
@@ -155,6 +174,9 @@ impl From<StructuredOutputError> for LlmError {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use chrono::Utc;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer};
 
@@ -168,10 +190,18 @@ mod tests {
     };
     use crate::sandbox::runtime::SandboxLimits;
     use crate::sandbox::test_support::echo_table;
+    use crate::stats::test_support::{
+        duration_of, events_between, run_event, test_run, unrecorded_run,
+    };
     use crate::test_support::json_response;
 
     const FINAL_TEXT: &str = include_str!("../../tests/fixtures/llm/final_text.json");
     const RUN_SCRIPT_CALL: &str = include_str!("../../tests/fixtures/llm/run_script_call.json");
+    const SUBMIT_CALL: &str = include_str!("../../tests/fixtures/llm/submit_call.json");
+    const OPENROUTER_RUN_SCRIPT_CALL: &str =
+        include_str!("../../tests/fixtures/llm/openrouter_run_script_call.json");
+    const OPENROUTER_FINAL_TEXT: &str =
+        include_str!("../../tests/fixtures/llm/openrouter_final_text.json");
 
     fn sandbox() -> Arc<Sandbox> {
         Arc::new(Sandbox::new(
@@ -187,13 +217,14 @@ mod tests {
         }
     }
 
-    fn request(sandbox: Option<Arc<Sandbox>>) -> TurnRequest {
+    fn request(sandbox: Option<Arc<Sandbox>>, stats: RunStats) -> TurnRequest {
         TurnRequest {
             model: test_model(),
             system_prompt: "You are Nuki.".to_string(),
             history: vec![Message::user("Hi Nuki."), Message::assistant("Hello.")],
             prompt: Message::user("Echo a = 1."),
             sandbox,
+            stats,
         }
     }
 
@@ -211,7 +242,10 @@ mod tests {
     async fn run_returns_the_final_text_without_tools() {
         let server = chat_server(&[FINAL_TEXT]).await;
 
-        let result = client(&server).run(request(None)).await.unwrap();
+        let result = client(&server)
+            .run(request(None, unrecorded_run().await))
+            .await
+            .unwrap();
 
         assert_eq!(
             result,
@@ -226,7 +260,10 @@ mod tests {
     async fn run_executes_run_script_and_returns_the_tool_turn() {
         let server = chat_server(&[RUN_SCRIPT_CALL, FINAL_TEXT]).await;
 
-        let result = client(&server).run(request(Some(sandbox()))).await.unwrap();
+        let result = client(&server)
+            .run(request(Some(sandbox()), unrecorded_run().await))
+            .await
+            .unwrap();
 
         assert_eq!(result.text, "The echo returned a = 1.");
         assert_echo_tool_turn(messages(result.turn_messages));
@@ -240,7 +277,10 @@ mod tests {
         ])
         .await;
 
-        let result = client(&server).run(request(Some(sandbox()))).await.unwrap();
+        let result = client(&server)
+            .run(request(Some(sandbox()), unrecorded_run().await))
+            .await
+            .unwrap();
 
         assert_eq!(result.text, "");
         assert_echo_tool_turn(messages(result.turn_messages));
@@ -250,7 +290,10 @@ mod tests {
     async fn run_sends_the_system_prompt_and_the_tool_declaration() {
         let server = chat_server(&[FINAL_TEXT]).await;
 
-        client(&server).run(request(Some(sandbox()))).await.unwrap();
+        client(&server)
+            .run(request(Some(sandbox()), unrecorded_run().await))
+            .await
+            .unwrap();
 
         let body = &llm_request_bodies(&server).await[0];
         assert_eq!(
@@ -279,7 +322,7 @@ mod tests {
             .await;
 
         let error = client(&server)
-            .run(request(Some(sandbox())))
+            .run(request(Some(sandbox()), unrecorded_run().await))
             .await
             .unwrap_err();
 
@@ -295,20 +338,24 @@ mod tests {
         severity: Option<String>,
     }
 
-    #[tokio::test]
-    async fn extract_returns_the_typed_value() {
-        let server =
-            chat_server(&[include_str!("../../tests/fixtures/llm/submit_call.json")]).await;
-
-        let fields: BugFields = client(&server)
+    async fn extract_bug_fields(server: &MockServer, stats: &RunStats) -> BugFields {
+        client(server)
             .extract(
                 &test_model(),
                 "You read bug reports.",
                 vec![Message::user("Playback stops after one track.")],
                 "Extract the bug fields.",
+                stats,
             )
             .await
-            .unwrap();
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn extract_returns_the_typed_value() {
+        let server = chat_server(&[SUBMIT_CALL]).await;
+
+        let fields = extract_bug_fields(&server, &unrecorded_run().await).await;
 
         assert_eq!(
             fields,
@@ -336,6 +383,167 @@ mod tests {
                     ]
                 }
             ])
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_run_with_a_script_records_its_model_calls_and_its_tool_call() {
+        let server = chat_server(&[OPENROUTER_RUN_SCRIPT_CALL, OPENROUTER_FINAL_TEXT]).await;
+        let (store, stats) = test_run().await;
+        let before = Utc::now();
+
+        client(&server)
+            .run(request(Some(sandbox()), stats))
+            .await
+            .unwrap();
+
+        let after = Utc::now();
+        let code = "await test.echo({ a: 1 });\nreturn await test.echo({ b: 2 });";
+        let result = r#"{"value":{"b":2}}"#;
+        assert_eq!(
+            events_between(&store, before, after).await,
+            vec![
+                run_event(
+                    "llm.call",
+                    json!({
+                        "purpose": "turn",
+                        "call_index": 1,
+                        "requested_model": "test/model",
+                        "response_model": "test/model-20261001",
+                        "provider": "Google AI Studio",
+                        "response_id": "gen-tool-or",
+                        "input_tokens": 1200,
+                        "output_tokens": 80,
+                        "total_tokens": 1280,
+                        "cached_input_tokens": 1000,
+                        "cache_write_tokens": 150,
+                        "reasoning_tokens": 30,
+                        "cost_usd": 0.0042,
+                        "cost_estimated": false,
+                        "finish_reason": "tool_calls",
+                        "output": [{
+                            "type": "toolcall",
+                            "id": { "provider": "call_1" },
+                            "function": {
+                                "name": "run_script",
+                                "arguments": { "code": code }
+                            },
+                            "native": {
+                                "item": {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "run_script",
+                                        "arguments": json!({ "code": code }).to_string()
+                                    }
+                                },
+                                // Rig's hash of the tools and the system prompt of the request.
+                                "fingerprint": "a6b08b1500b1daab"
+                            }
+                        }],
+                    })
+                ),
+                run_event(
+                    "tool.call",
+                    json!({
+                        "code": code,
+                        "operations": ["test.echo", "test.echo"],
+                        "error": null,
+                        "result": result,
+                        "result_bytes": result.len(),
+                    })
+                ),
+                run_event(
+                    "llm.call",
+                    json!({
+                        "purpose": "turn",
+                        "call_index": 2,
+                        "requested_model": "test/model",
+                        "response_model": "test/model-20261001",
+                        "provider": "Google AI Studio",
+                        "response_id": "gen-final-or",
+                        "input_tokens": 1320,
+                        "output_tokens": 12,
+                        "total_tokens": 1332,
+                        "cached_input_tokens": 1200,
+                        "cache_write_tokens": 0,
+                        "reasoning_tokens": 0,
+                        "cost_usd": 0.0011,
+                        "cost_estimated": false,
+                        "finish_reason": "stop",
+                        "output": [{ "type": "text", "text": "The echo returned b = 2." }],
+                    })
+                ),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_llm_call_records_the_duration_of_the_request() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(json_response(200, FINAL_TEXT).set_delay(Duration::from_millis(50)))
+            .mount(&server)
+            .await;
+        let (store, stats) = test_run().await;
+
+        client(&server).run(request(None, stats)).await.unwrap();
+
+        assert!(duration_of(&store, "llm.call").await >= 50);
+    }
+
+    #[tokio::test]
+    async fn extract_records_an_llm_call_with_the_purpose_extract() {
+        let server = chat_server(&[SUBMIT_CALL]).await;
+        let (store, stats) = test_run().await;
+        let before = Utc::now();
+
+        extract_bug_fields(&server, &stats).await;
+
+        let after = Utc::now();
+        assert_eq!(
+            events_between(&store, before, after).await,
+            vec![run_event(
+                "llm.call",
+                json!({
+                    "purpose": "extract",
+                    "call_index": 1,
+                    "requested_model": "test/model",
+                    "response_model": "test/model",
+                    "provider": null,
+                    "response_id": "gen-submit",
+                    "input_tokens": 50,
+                    "output_tokens": 14,
+                    "total_tokens": 64,
+                    "cached_input_tokens": null,
+                    "cache_write_tokens": null,
+                    "reasoning_tokens": null,
+                    "cost_usd": null,
+                    "cost_estimated": false,
+                    "finish_reason": "tool_calls",
+                    "output": [{
+                        "type": "toolcall",
+                        "id": { "provider": "call_submit" },
+                        "function": {
+                            "name": "submit",
+                            "arguments": { "title": "Playback stops after one track", "severity": null }
+                        },
+                        "native": {
+                            "item": {
+                                "id": "call_submit",
+                                "type": "function",
+                                "function": {
+                                    "name": "submit",
+                                    "arguments": r#"{"title":"Playback stops after one track","severity":null}"#
+                                }
+                            },
+                            // Rig's hash of the tools and the system prompt of the request.
+                            "fingerprint": "4a930ff43b485e25"
+                        }
+                    }],
+                })
+            )]
         );
     }
 }

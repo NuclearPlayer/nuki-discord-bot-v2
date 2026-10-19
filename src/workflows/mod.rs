@@ -19,6 +19,7 @@ use crate::llm::selection::ActiveModel;
 use crate::prompts::system::{RuntimeContext, SystemPrompt, WorkflowPrompt};
 use crate::routing::trigger::Trigger;
 use crate::sandbox::runtime::Sandbox;
+use crate::stats::recorder::RunStats;
 use intake::report::Report;
 
 /// Everything a workflow needs from Discord for one turn.
@@ -34,6 +35,8 @@ pub struct TurnContext {
     pub runtime: RuntimeContext,
     /// The sandbox of the `run_script` tool, for the server of the turn.
     pub sandbox: Arc<Sandbox>,
+    /// The recorder of the run that the turn is part of.
+    pub stats: RunStats,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -103,6 +106,7 @@ pub async fn llm_turn(
         history,
         prompt,
         sandbox: options.with_tools.then(|| Arc::clone(&ctx.sandbox)),
+        stats: ctx.stats.clone(),
     };
     Ok(deps.llm.run(request).await?)
 }
@@ -146,7 +150,8 @@ mod tests {
                 nuki_message(2, "Hi! What do you need?"),
                 user_message(3, "how do I add a plugin?"),
             ],
-        );
+        )
+        .await;
         let options = TurnOptions {
             extra: Some("Missing fields: version."),
             instruction: None,
@@ -192,7 +197,8 @@ mod tests {
                 user_message(1, "playback stops"),
                 nuki_message(2, "Which version do you use?"),
             ],
-        );
+        )
+        .await;
         let options = TurnOptions {
             extra: None,
             instruction: Some("Write the final checks now."),

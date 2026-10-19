@@ -19,6 +19,7 @@ use crate::discord::turn_context::turn_context;
 use crate::routing::category::Category;
 use crate::routing::dispatch::{Decision, decide_with_cooldown, describe};
 use crate::routing::trigger::{ClassifiedTrigger, MessageFacts, Trigger, trigger_of_unit};
+use crate::stats::recorder::{RunStats, run_id_of_unit};
 use crate::store::intakes::IntakeKind;
 use crate::workflows::Workflow;
 
@@ -131,6 +132,7 @@ struct Routed {
     category: Category,
     channel: GuildChannel,
     history: Vec<ResolvedMessage>,
+    stats: RunStats,
 }
 
 async fn route(app: &App, unit: &[Message], trigger: ClassifiedTrigger) -> Result<(), Failure> {
@@ -148,13 +150,19 @@ async fn classify(
     unit: &[Message],
     trigger: ClassifiedTrigger,
 ) -> anyhow::Result<Option<Routed>> {
-    let channel = fetch_channel(app, last_message(unit).channel_id).await?;
+    let last = last_message(unit);
+    let channel = fetch_channel(app, last.channel_id).await?;
+    let stats = app.stats.run(
+        run_id_of_unit(last.id.get()),
+        channel.guild_id.get(),
+        channel.id.get(),
+    );
     let history = fetch_unit_context(app, channel.guild_id, unit).await?;
     let lines = jev_lines(&history);
     let (history_lines, unit_lines) = lines.split_at(lines.len() - unit.len());
     let classification = app
         .classifier
-        .classify(trigger, history_lines, unit_lines)
+        .classify(trigger, history_lines, unit_lines, &stats)
         .await?;
     let decision = decide_with_cooldown(
         trigger,
@@ -175,6 +183,7 @@ async fn classify(
             category,
             channel,
             history,
+            stats,
         })),
         Decision::Skip(_) => Ok(None),
     }
@@ -186,10 +195,26 @@ async fn run_category(app: &App, unit: &[Message], routed: Routed) -> anyhow::Re
         Category::HelpRequest => run_workflow(app, &app.help, unit, routed).await,
         Category::Chat => run_workflow(app, &app.chat, unit, routed).await,
         Category::BugReport => {
-            start_intake(app, unit, &routed.channel, trigger, IntakeKind::Bug).await
+            start_intake(
+                app,
+                unit,
+                &routed.channel,
+                trigger,
+                IntakeKind::Bug,
+                routed.stats,
+            )
+            .await
         }
         Category::FeatureRequest => {
-            start_intake(app, unit, &routed.channel, trigger, IntakeKind::Feature).await
+            start_intake(
+                app,
+                unit,
+                &routed.channel,
+                trigger,
+                IntakeKind::Feature,
+                routed.stats,
+            )
+            .await
         }
         Category::Ignore => Ok(()),
     }
@@ -210,6 +235,7 @@ async fn run_workflow(
         &routed.channel.name,
         routed.history,
         unit.len(),
+        routed.stats,
     )
     .await?;
     let outcome = workflow.run(&ctx).await?;

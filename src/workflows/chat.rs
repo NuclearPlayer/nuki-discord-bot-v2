@@ -42,7 +42,8 @@ mod tests {
         let ctx = context(
             Trigger::Unsolicited,
             vec![user_message(1, "my playlist is 900 hours of vaporwave")],
-        );
+        )
+        .await;
         workflow.run(&ctx).await.unwrap()
     }
 

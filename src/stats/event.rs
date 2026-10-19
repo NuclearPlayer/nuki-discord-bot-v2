@@ -66,7 +66,7 @@ impl Event {
     }
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, Copy, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum JevPurpose {
     Category,
@@ -74,7 +74,7 @@ pub enum JevPurpose {
     IntakeFields,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, Copy, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum LlmPurpose {
     Turn,
@@ -146,6 +146,8 @@ pub struct LlmCall {
     pub cost_usd: Option<f64>,
     pub cost_estimated: bool,
     pub finish_reason: Option<String>,
+    /// The assistant content of the response, as JSON.
+    pub output: serde_json::Value,
     pub duration_ms: u64,
 }
 
@@ -155,6 +157,9 @@ pub struct ToolCall {
     pub operations: Vec<String>,
     pub duration_ms: u64,
     pub error: Option<String>,
+    /// The tool result that the model gets.
+    pub result: String,
+    /// The length of the JSON of the script outcome, before the output limit.
     pub result_bytes: u64,
 }
 
@@ -261,6 +266,7 @@ mod tests {
                 operations: vec![],
                 duration_ms: 0,
                 error: None,
+                result: String::new(),
                 result_bytes: 0,
             }),
             Event::WorkflowFinished(WorkflowFinished {
@@ -327,6 +333,7 @@ mod tests {
             cost_usd: Some(0.0042),
             cost_estimated: false,
             finish_reason: Some("stop".to_string()),
+            output: json!([{ "type": "text", "text": "Hello." }]),
             duration_ms: 950,
         }
     }
@@ -376,6 +383,7 @@ mod tests {
                 "cost_usd": 0.0042,
                 "cost_estimated": false,
                 "finish_reason": "stop",
+                "output": [{ "type": "text", "text": "Hello." }],
                 "duration_ms": 950,
             })
         );

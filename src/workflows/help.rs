@@ -7,6 +7,7 @@ use crate::discord::context::jev_lines;
 use crate::prompts::questions::help_quality;
 use crate::prompts::system::WorkflowPrompt;
 use crate::routing::trigger::Trigger;
+use crate::stats::event::JevPurpose;
 
 const HELP_QUALITY_QUESTION: &str = "help_quality";
 
@@ -51,7 +52,11 @@ impl HelpWorkflow {
                 instructions: help_quality().to_string(),
             },
         )]);
-        let answers = self.deps.jev.decide(state, questions).await?;
+        let answers = self
+            .deps
+            .jev
+            .decide(state, questions, &ctx.stats, JevPurpose::HelpQuality)
+            .await?;
         match answers.get(HELP_QUALITY_QUESTION) {
             Some(Answer::Noul { noul }) => Ok(*noul),
             other => {
@@ -89,6 +94,7 @@ impl HelpWorkflow {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use serde_json::Value;
     use wiremock::MockServer;
 
@@ -102,6 +108,7 @@ mod tests {
     use crate::prompts::files::{
         DECISION_HELP_QUALITY, KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_HELP_FALLBACK,
     };
+    use crate::stats::test_support::{events_between, of_kind, run_event, test_run};
     use crate::workflows::test_support::{RUNTIME_SECTION, context, deps, user_turn_text};
 
     const HELP_DRAFT: &str = include_str!("../../tests/fixtures/workflows/help_draft.json");
@@ -119,7 +126,7 @@ mod tests {
     }
 
     async fn run_help(deps: WorkflowDeps, trigger: Trigger) -> Outcome {
-        let ctx = context(trigger, vec![user_message(1, "how do I add a plugin?")]);
+        let ctx = context(trigger, vec![user_message(1, "how do I add a plugin?")]).await;
         HelpWorkflow { deps }.run(&ctx).await.unwrap()
     }
 
@@ -228,14 +235,20 @@ mod tests {
         let server = MockServer::start().await;
         mount_llm_replies(&server, &[HELP_DRAFT]).await;
         mount_help_quality(&server, 0.92).await;
-        let ctx = context(
-            Trigger::Direct,
-            vec![
-                user_message(1, "hi nuki"),
-                nuki_message(2, "Hi! What do you need?"),
-                user_message(3, "how do I add a plugin?"),
-            ],
-        );
+        let (store, stats) = test_run().await;
+        let ctx = TurnContext {
+            stats,
+            ..context(
+                Trigger::Direct,
+                vec![
+                    user_message(1, "hi nuki"),
+                    nuki_message(2, "Hi! What do you need?"),
+                    user_message(3, "how do I add a plugin?"),
+                ],
+            )
+            .await
+        };
+        let before = Utc::now();
 
         HelpWorkflow {
             deps: deps(&server).await,
@@ -244,6 +257,23 @@ mod tests {
         .await
         .unwrap();
 
+        let after = Utc::now();
+        assert_eq!(
+            of_kind(events_between(&store, before, after).await, "jev.call"),
+            vec![run_event(
+                "jev.call",
+                json!({
+                    "purpose": "help_quality",
+                    "questions": ["help_quality"],
+                    "answers": { "help_quality": { "type": "noul", "noul": 0.92 } },
+                    "model": "typesafe/jev-1.14-20261014",
+                    "input_tokens": null,
+                    "output_tokens": null,
+                    "cost_usd": null,
+                    "error": null,
+                })
+            )]
+        );
         assert_eq!(
             jev_request_bodies(&server).await,
             vec![json!({

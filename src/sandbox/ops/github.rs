@@ -142,6 +142,7 @@ mod tests {
         Sandbox::new(Arc::new(table), SandboxLimits::production())
             .run(code)
             .await
+            .outcome
     }
 
     #[tokio::test]

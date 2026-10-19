@@ -62,17 +62,29 @@ impl ScriptOutcome {
         }
     }
 
-    /// Serializes the outcome as JSON and cuts it to at most `max_output_bytes`.
-    pub fn to_tool_result(&self, max_output_bytes: usize) -> String {
-        let text = serde_json::to_string(self).expect("a script outcome always serializes");
-        if text.len() > max_output_bytes {
-            format!(
-                "{}\n[truncated]",
-                &text[..text.floor_char_boundary(max_output_bytes)]
-            )
-        } else {
-            text
-        }
+    /// The outcome as JSON, before the output limit.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("a script outcome always serializes")
+    }
+}
+
+/// A script run: its outcome, and the names of the operations that the script called, in
+/// sequence. The model gets only the outcome; the usage events get both.
+#[derive(Debug, PartialEq)]
+pub struct ScriptRun {
+    pub outcome: ScriptOutcome,
+    pub operations: Vec<String>,
+}
+
+/// Cuts the JSON of an outcome to at most `max_output_bytes`, for the tool result.
+pub fn truncate_tool_result(json: String, max_output_bytes: usize) -> String {
+    if json.len() > max_output_bytes {
+        format!(
+            "{}\n[truncated]",
+            &json[..json.floor_char_boundary(max_output_bytes)]
+        )
+    } else {
+        json
     }
 }
 
@@ -101,17 +113,22 @@ impl Sandbox {
     }
 
     /// Runs `code` as the body of an async function in a new QuickJS context.
-    pub async fn run(&self, code: &str) -> ScriptOutcome {
+    pub async fn run(&self, code: &str) -> ScriptRun {
         let (log_sender, log_receiver) = mpsc::channel();
         let logs = LogSink::new(log_sender, self.limits.max_output_bytes);
-        let result = self.evaluate(code, logs).await;
-        ScriptOutcome::new(result, log_receiver.try_iter().collect())
+        let (operation_sender, operation_receiver) = mpsc::channel();
+        let result = self.evaluate(code, logs, operation_sender).await;
+        ScriptRun {
+            outcome: ScriptOutcome::new(result, log_receiver.try_iter().collect()),
+            operations: operation_receiver.try_iter().collect(),
+        }
     }
 
     async fn evaluate(
         &self,
         code: &str,
         logs: LogSink,
+        operations: Sender<String>,
     ) -> Result<Option<serde_json::Value>, ScriptError> {
         let deadline = Instant::now() + self.limits.timeout;
         let runtime = AsyncRuntime::new()?;
@@ -126,8 +143,13 @@ impl Sandbox {
         let table = Arc::clone(&self.table);
         let prelude = self.prelude.as_str();
         let script = format!("(async () => {{\n{code}\n}})()");
+        let globals = Globals {
+            table,
+            logs,
+            operations,
+        };
         let evaluation =
-            context.async_with(async |ctx| evaluate_in(&ctx, table, logs, prelude, &script).await);
+            context.async_with(async |ctx| evaluate_in(&ctx, globals, prelude, &script).await);
         match tokio::time::timeout_at(deadline.into(), evaluation).await {
             Ok(Err(_)) if Instant::now() >= deadline => Err(self.timeout_error()),
             Ok(result) => result,
@@ -146,14 +168,21 @@ impl Sandbox {
     }
 }
 
-async fn evaluate_in<'js>(
-    ctx: &Ctx<'js>,
+/// What the globals of a script need: the operations, and the sinks of the logs and of the
+/// names of the called operations.
+struct Globals {
     table: Arc<OperationTable>,
     logs: LogSink,
+    operations: Sender<String>,
+}
+
+async fn evaluate_in<'js>(
+    ctx: &Ctx<'js>,
+    globals: Globals,
     prelude: &str,
     script: &str,
 ) -> Result<Option<serde_json::Value>, ScriptError> {
-    define_globals(ctx, table, logs)
+    define_globals(ctx, globals)
         .and_then(|()| ctx.eval::<(), _>(prelude))
         .catch(ctx)
         .map_err(|caught| script_error(ctx, caught))?;
@@ -171,15 +200,12 @@ async fn evaluate_in<'js>(
         .map_err(|caught| script_error(ctx, caught))
 }
 
-fn define_globals<'js>(
-    ctx: &Ctx<'js>,
-    table: Arc<OperationTable>,
-    logs: LogSink,
-) -> rquickjs::Result<()> {
+fn define_globals<'js>(ctx: &Ctx<'js>, globals: Globals) -> rquickjs::Result<()> {
     let console = Object::new(ctx.clone())?;
-    console.set("log", console_log(ctx, logs)?)?;
+    console.set("log", console_log(ctx, globals.logs)?)?;
     ctx.globals().set("console", console)?;
-    ctx.globals().set("__op", op_function(ctx, table)?)
+    ctx.globals()
+        .set("__op", op_function(ctx, globals.table, globals.operations)?)
 }
 
 /// Collects the `console.log` lines until their total size passes the output limit.
@@ -236,12 +262,21 @@ fn display_text<'js>(ctx: &Ctx<'js>, arg: Value<'js>) -> rquickjs::Result<String
     }
 }
 
-/// Makes `__op(name, json)`, which calls an operation and resolves to its result as JSON.
-fn op_function<'js>(ctx: &Ctx<'js>, table: Arc<OperationTable>) -> rquickjs::Result<Function<'js>> {
+/// Makes `__op(name, json)`, which calls an operation and resolves to its result as JSON. The
+/// name of each call goes to `operations` before the call, so a call that fails or names an
+/// unknown operation is in the list too.
+fn op_function<'js>(
+    ctx: &Ctx<'js>,
+    table: Arc<OperationTable>,
+    operations: Sender<String>,
+) -> rquickjs::Result<Function<'js>> {
     Function::new(
         ctx.clone(),
         Async(move |ctx: Ctx<'js>, name: String, json: String| {
             let table = Arc::clone(&table);
+            operations
+                .send(name.clone())
+                .expect("operation receiver lives until run returns");
             async move {
                 call_operation(&table, &name, &json)
                     .await
@@ -344,12 +379,16 @@ mod tests {
         Arc::new(Sandbox::new(Arc::new(test_table()), limits))
     }
 
-    async fn run(sandbox: &Arc<Sandbox>, code: &str) -> ScriptOutcome {
+    async fn run_script(sandbox: &Arc<Sandbox>, code: &str) -> ScriptRun {
         let sandbox = Arc::clone(sandbox);
         let code = code.to_owned();
         tokio::spawn(async move { sandbox.run(&code).await })
             .await
             .unwrap()
+    }
+
+    async fn run(sandbox: &Arc<Sandbox>, code: &str) -> ScriptOutcome {
+        run_script(sandbox, code).await.outcome
     }
 
     fn timed_out() -> ScriptOutcome {
@@ -551,8 +590,33 @@ mod tests {
         assert_eq!(outcome, value(json!("unknown operation: test.nope")));
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_run_lists_the_called_operations() {
+        let run = run_script(
+            &sandbox(),
+            "await test.echo({ a: 1 });\n\
+             try { await test.fail(); } catch (e) {}\n\
+             try { await __op('test.nope', '{}'); } catch (e) {}\n\
+             return await test.echo({ b: 2 });",
+        )
+        .await;
+
+        assert_eq!(
+            run,
+            ScriptRun {
+                outcome: value(json!({ "b": 2 })),
+                operations: vec![
+                    "test.echo".to_owned(),
+                    "test.fail".to_owned(),
+                    "test.nope".to_owned(),
+                    "test.echo".to_owned(),
+                ],
+            }
+        );
+    }
+
     #[test]
-    fn to_tool_result_omits_empty_parts() {
+    fn to_json_omits_empty_parts() {
         let outcome = ScriptOutcome {
             value: None,
             logs: vec![],
@@ -562,23 +626,26 @@ mod tests {
             }),
         };
 
+        assert_eq!(outcome.to_json(), r#"{"error":{"message":"boom"}}"#);
+    }
+
+    #[test]
+    fn truncate_tool_result_truncates_long_output() {
+        let json = value(json!("abcdef")).to_json();
+
         assert_eq!(
-            outcome.to_tool_result(20_000),
-            r#"{"error":{"message":"boom"}}"#
+            truncate_tool_result(json, 12),
+            "{\"value\":\"ab\n[truncated]"
         );
     }
 
     #[test]
-    fn to_tool_result_truncates_long_output() {
-        let outcome = value(json!("abcdef"));
+    fn truncate_tool_result_cuts_at_a_character_boundary() {
+        let json = value(json!("aé")).to_json();
 
-        assert_eq!(outcome.to_tool_result(12), "{\"value\":\"ab\n[truncated]");
-    }
-
-    #[test]
-    fn to_tool_result_cuts_at_a_character_boundary() {
-        let outcome = value(json!("aé"));
-
-        assert_eq!(outcome.to_tool_result(12), "{\"value\":\"a\n[truncated]");
+        assert_eq!(
+            truncate_tool_result(json, 12),
+            "{\"value\":\"a\n[truncated]"
+        );
     }
 }

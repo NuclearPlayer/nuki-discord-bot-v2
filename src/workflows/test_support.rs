@@ -15,6 +15,7 @@ use crate::prompts::system::RuntimeContext;
 use crate::routing::trigger::Trigger;
 use crate::sandbox::runtime::{Sandbox, SandboxLimits};
 use crate::sandbox::test_support::echo_table;
+use crate::stats::test_support::unrecorded_run;
 use crate::store::Store;
 
 pub(crate) async fn deps(server: &MockServer) -> WorkflowDeps {
@@ -52,7 +53,7 @@ pub(crate) fn user_turn_text(id: u64, content: &str) -> String {
     )
 }
 
-pub(crate) fn context(trigger: Trigger, messages: Vec<ChatMessage>) -> TurnContext {
+pub(crate) async fn context(trigger: Trigger, messages: Vec<ChatMessage>) -> TurnContext {
     TurnContext {
         trigger,
         channel_name: "general".to_string(),
@@ -64,6 +65,7 @@ pub(crate) fn context(trigger: Trigger, messages: Vec<ChatMessage>) -> TurnConte
             Arc::new(echo_table()),
             SandboxLimits::production(),
         )),
+        stats: unrecorded_run().await,
     }
 }
 

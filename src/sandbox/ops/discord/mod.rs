@@ -214,6 +214,7 @@ mod tests {
         Sandbox::new(Arc::new(table), SandboxLimits::production())
             .run(code)
             .await
+            .outcome
     }
 
     fn ops_for(server: &MockServer) -> DiscordOps {

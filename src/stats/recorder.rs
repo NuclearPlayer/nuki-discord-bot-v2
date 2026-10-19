@@ -91,12 +91,12 @@ mod tests {
 
     use super::*;
     use crate::stats::event::ReactionAdded;
-    use crate::stats::test_support::run_stats;
+    use crate::stats::test_support::test_run;
     use crate::store::test_support::{EventRow, all_events};
 
     #[tokio::test]
     async fn run_stats_record_the_scope_of_the_run() {
-        let (store, run) = run_stats("unit-1", 10, 20).await;
+        let (store, run) = test_run().await;
         let before = Utc::now();
 
         run.record(

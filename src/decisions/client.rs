@@ -1,8 +1,13 @@
+use std::time::{Duration, Instant};
+
 use indexmap::IndexMap;
 use reqwest::Response;
 use serde::Deserialize;
 
 use super::types::{Answer, DecisionRequest, DecisionResponse, Question};
+use crate::stats::duration_ms;
+use crate::stats::event::{Event, JevCall, JevPurpose};
+use crate::stats::recorder::RunStats;
 
 pub const JEV_MODEL: &str = "~typesafe/jev-latest";
 
@@ -15,6 +20,14 @@ pub enum DecisionError {
     Http(#[from] reqwest::Error),
     #[error("Jev returned the status {status}: {message}")]
     Api { status: u16, message: String },
+    #[error("the response of Jev does not parse: {0}")]
+    Json(#[from] serde_json::Error),
+}
+
+/// A response of Jev, with the JSON of its answers as Jev sent them.
+struct Decided {
+    response: DecisionResponse,
+    raw_answers: serde_json::Value,
 }
 
 pub struct JevClient {
@@ -36,7 +49,22 @@ impl JevClient {
         &self,
         state: serde_json::Value,
         questions: IndexMap<String, Question>,
+        stats: &RunStats,
+        purpose: JevPurpose,
     ) -> Result<IndexMap<String, Answer>, DecisionError> {
+        let question_ids = questions.keys().cloned().collect();
+        let started = Instant::now();
+        let result = self.request(state, questions).await;
+        let call = jev_call(purpose, question_ids, started.elapsed(), &result);
+        stats.record(None, Event::JevCall(call)).await;
+        result.map(|decided| decided.response.answers)
+    }
+
+    async fn request(
+        &self,
+        state: serde_json::Value,
+        questions: IndexMap<String, Question>,
+    ) -> Result<Decided, DecisionError> {
         let request = DecisionRequest {
             model: JEV_MODEL.to_string(),
             state,
@@ -49,8 +77,54 @@ impl JevClient {
             .json(&request)
             .send()
             .await?;
-        let decision: DecisionResponse = ensure_success(response).await?.json().await?;
-        Ok(decision.answers)
+        let body: serde_json::Value = ensure_success(response).await?.json().await?;
+        let raw_answers = body["answers"].clone();
+        let response = serde_json::from_value(body)?;
+        Ok(Decided {
+            response,
+            raw_answers,
+        })
+    }
+}
+
+/// The `jev.call` event of one call: the answers, the model, and the usage of a success, or the
+/// error of a failure.
+fn jev_call(
+    purpose: JevPurpose,
+    questions: Vec<String>,
+    elapsed: Duration,
+    result: &Result<Decided, DecisionError>,
+) -> JevCall {
+    let without_result = JevCall {
+        purpose,
+        questions,
+        answers: serde_json::Value::Null,
+        model: None,
+        duration_ms: duration_ms(elapsed),
+        input_tokens: None,
+        output_tokens: None,
+        cost_usd: None,
+        error: None,
+    };
+    match result {
+        Ok(Decided {
+            response,
+            raw_answers,
+        }) => {
+            let usage = response.usage.as_ref();
+            JevCall {
+                answers: raw_answers.clone(),
+                model: response.model.clone(),
+                input_tokens: usage.and_then(|usage| usage.input_tokens),
+                output_tokens: usage.and_then(|usage| usage.output_tokens),
+                cost_usd: usage.and_then(|usage| usage.cost),
+                ..without_result
+            }
+        }
+        Err(error) => JevCall {
+            error: Some(error.to_string()),
+            ..without_result
+        },
     }
 }
 
@@ -90,10 +164,16 @@ mod tests {
     use wiremock::matchers::{body_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    use chrono::Utc;
+
     use super::*;
+    use crate::stats::test_support::{
+        duration_of, events_between, run_event, test_run, unrecorded_run,
+    };
     use crate::test_support::json_response;
 
     const RESPONSE: &str = include_str!("../../tests/fixtures/decisions/response.json");
+    const ERROR: &str = include_str!("../../tests/fixtures/decisions/error.json");
 
     fn state() -> Value {
         json!({
@@ -127,12 +207,88 @@ mod tests {
         server
     }
 
-    async fn decide_against(
+    async fn decide_with_stats(
         server: &MockServer,
+        stats: &RunStats,
     ) -> Result<IndexMap<String, Answer>, DecisionError> {
         JevClient::new("test-key".to_string(), server.uri())
-            .decide(state(), questions())
+            .decide(state(), questions(), stats, JevPurpose::IntakeFields)
             .await
+    }
+
+    #[tokio::test]
+    async fn decide_records_the_jev_call_with_the_usage() {
+        let server = server_responding_with(json_response(200, RESPONSE)).await;
+        let (store, stats) = test_run().await;
+        let before = Utc::now();
+
+        decide_with_stats(&server, &stats).await.unwrap();
+
+        let after = Utc::now();
+        assert_eq!(
+            events_between(&store, before, after).await,
+            vec![run_event(
+                "jev.call",
+                json!({
+                    "purpose": "intake_fields",
+                    "questions": ["category", "has_version"],
+                    "answers": {
+                        "category": {
+                            "type": "choice",
+                            "choice": "bug_report",
+                            "confidence": 0.67,
+                            "probabilities": { "help_request": 0.14, "bug_report": 0.86 }
+                        },
+                        "has_version": { "type": "noul", "noul": 0.04 }
+                    },
+                    "model": "typesafe/jev-1.14-20261014",
+                    "input_tokens": 476,
+                    "output_tokens": 70,
+                    "cost_usd": 0.000019992,
+                    "error": null,
+                })
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_jev_call_records_the_duration_of_the_request() {
+        let server = server_responding_with(
+            json_response(200, RESPONSE).set_delay(Duration::from_millis(50)),
+        )
+        .await;
+        let (store, stats) = test_run().await;
+
+        decide_with_stats(&server, &stats).await.unwrap();
+
+        assert!(duration_of(&store, "jev.call").await >= 50);
+    }
+
+    #[tokio::test]
+    async fn a_failed_decision_records_the_error() {
+        let server = server_responding_with(json_response(400, ERROR)).await;
+        let (store, stats) = test_run().await;
+        let before = Utc::now();
+
+        decide_with_stats(&server, &stats).await.unwrap_err();
+
+        let after = Utc::now();
+        assert_eq!(
+            events_between(&store, before, after).await,
+            vec![run_event(
+                "jev.call",
+                json!({
+                    "purpose": "intake_fields",
+                    "questions": ["category", "has_version"],
+                    "answers": null,
+                    "model": null,
+                    "input_tokens": null,
+                    "output_tokens": null,
+                    "cost_usd": null,
+                    "error": "Jev returned the status 400: bad question",
+                })
+            )]
+        );
     }
 
     #[tokio::test]
@@ -152,14 +308,18 @@ mod tests {
             .mount(&server)
             .await;
 
-        decide_against(&server).await.unwrap();
+        decide_with_stats(&server, &unrecorded_run().await)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn decide_returns_the_choice_answer_with_all_probabilities() {
         let server = server_responding_with(json_response(200, RESPONSE)).await;
 
-        let answers = decide_against(&server).await.unwrap();
+        let answers = decide_with_stats(&server, &unrecorded_run().await)
+            .await
+            .unwrap();
 
         assert_eq!(
             answers["category"],
@@ -177,20 +337,20 @@ mod tests {
     async fn decide_returns_the_noul_answer() {
         let server = server_responding_with(json_response(200, RESPONSE)).await;
 
-        let answers = decide_against(&server).await.unwrap();
+        let answers = decide_with_stats(&server, &unrecorded_run().await)
+            .await
+            .unwrap();
 
         assert_eq!(answers["has_version"], Answer::Noul { noul: 0.04 });
     }
 
     #[tokio::test]
     async fn decide_returns_an_api_error_with_the_status_and_the_message() {
-        let server = server_responding_with(json_response(
-            400,
-            r#"{"error":{"code":400,"message":"bad question"}}"#,
-        ))
-        .await;
+        let server = server_responding_with(json_response(400, ERROR)).await;
 
-        let error = decide_against(&server).await.unwrap_err();
+        let error = decide_with_stats(&server, &unrecorded_run().await)
+            .await
+            .unwrap_err();
 
         assert!(
             matches!(
@@ -208,7 +368,9 @@ mod tests {
         )
         .await;
 
-        let error = decide_against(&server).await.unwrap_err();
+        let error = decide_with_stats(&server, &unrecorded_run().await)
+            .await
+            .unwrap_err();
 
         assert!(
             matches!(

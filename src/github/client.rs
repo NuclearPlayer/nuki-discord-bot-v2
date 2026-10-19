@@ -162,22 +162,9 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
-
-    const RELEASES: &str = include_str!("../../tests/fixtures/github/releases.json");
-    const PULL_REQUESTS: &str = include_str!("../../tests/fixtures/github/pull_requests.json");
-    const DISCUSSIONS: &str = include_str!("../../tests/fixtures/github/discussions.json");
-
-    fn client_for(server: &MockServer) -> GitHubClient {
-        GitHubClient::new(
-            "test-token".to_string(),
-            server.uri(),
-            format!("{}/graphql", server.uri()),
-        )
-    }
-
-    fn json_response(body: &str) -> ResponseTemplate {
-        ResponseTemplate::new(200).set_body_raw(body, "application/json")
-    }
+    use crate::github::test_support::{
+        DISCUSSIONS, PULL_REQUESTS, RELEASES, client_for, json_response,
+    };
 
     fn time(text: &str) -> DateTime<Utc> {
         text.parse().unwrap()

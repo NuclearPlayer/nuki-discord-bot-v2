@@ -22,8 +22,11 @@ use crate::store::settings::ModelSelection;
 /// The production base URL of the OpenRouter API.
 pub const OPENROUTER_BASE_URL: &str = OPENROUTER.base_url;
 
-/// Rig counts model calls, not tool calls: 10 calls of `run_script` and one final answer.
-const MAX_MODEL_CALLS: usize = 11;
+/// Rig counts model calls, not tool calls: 50 calls of `run_script` and one final answer.
+const MAX_MODEL_CALLS: usize = 51;
+
+/// The name of the agent in the logs of rig.
+const AGENT_NAME: &str = "Nuki";
 
 #[derive(Debug, Error)]
 pub enum LlmError {
@@ -69,7 +72,7 @@ impl LlmClient {
         }
     }
 
-    /// Runs one LLM turn: the model can call `run_script` up to 10 times, then it must answer.
+    /// Runs one LLM turn: the model can call `run_script` up to 50 times, then it must answer.
     pub async fn run(&self, request: TurnRequest) -> Result<TurnResult, LlmError> {
         tracing::info!(model = request.model.model_id, "LLM turn");
         let agent = self.agent(&request);
@@ -91,6 +94,7 @@ impl LlmClient {
 
     fn agent(&self, request: &TurnRequest) -> Agent {
         let builder = AgentBuilder::new(self.client.completion(&request.model.model_id))
+            .name(AGENT_NAME)
             .preamble(&request.system_prompt);
         match &request.sandbox {
             Some(sandbox) => builder
@@ -312,12 +316,12 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn run_fails_when_the_model_calls_the_tool_more_than_10_times() {
+    async fn run_fails_when_the_model_calls_the_tool_more_than_50_times() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
             .respond_with(json_response(200, RUN_SCRIPT_CALL))
-            .expect(11)
+            .expect(51)
             .mount(&server)
             .await;
 
@@ -327,7 +331,7 @@ mod tests {
             .unwrap_err();
 
         assert!(
-            matches!(error, LlmError::MaxTurns { max_turns: 11 }),
+            matches!(error, LlmError::MaxTurns { max_turns: 51 }),
             "unexpected error: {error:?}"
         );
     }

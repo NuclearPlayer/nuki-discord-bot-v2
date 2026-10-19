@@ -91,6 +91,14 @@ impl Sandbox {
         }
     }
 
+    pub fn table(&self) -> &OperationTable {
+        &self.table
+    }
+
+    pub fn limits(&self) -> &SandboxLimits {
+        &self.limits
+    }
+
     /// Runs `code` as the body of an async function in a new QuickJS context.
     pub async fn run(&self, code: &str) -> ScriptOutcome {
         let (log_sender, log_receiver) = mpsc::channel();

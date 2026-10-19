@@ -1,0 +1,27 @@
+{
+  "id": "gen-submit",
+  "object": "chat.completion",
+  "created": 1789000000,
+  "model": "test/model",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_submit",
+            "type": "function",
+            "function": {
+              "name": "submit",
+              "arguments": "{\"title\":\"Playback stops after one track\",\"severity\":null}"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "usage": { "prompt_tokens": 50, "completion_tokens": 14, "total_tokens": 64 }
+}

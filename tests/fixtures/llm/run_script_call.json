@@ -1,0 +1,27 @@
+{
+  "id": "gen-tool",
+  "object": "chat.completion",
+  "created": 1789000000,
+  "model": "test/model",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "tool_calls",
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_1",
+            "type": "function",
+            "function": {
+              "name": "run_script",
+              "arguments": "{\"code\":\"return await test.echo({ a: 1 })\"}"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "usage": { "prompt_tokens": 30, "completion_tokens": 12, "total_tokens": 42 }
+}

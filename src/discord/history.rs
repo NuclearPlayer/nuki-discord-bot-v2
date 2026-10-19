@@ -243,7 +243,7 @@ async fn author(
     }
 }
 
-fn is_not_found(error: &serenity::Error) -> bool {
+pub(super) fn is_not_found(error: &serenity::Error) -> bool {
     match error {
         serenity::Error::Http(http_error) => http_error
             .status_code()

@@ -1,4 +1,5 @@
-//! The start of an intake in its thread, and the turns in an open intake thread.
+//! The start of an intake in its thread, the turns in an open intake thread, and the
+//! completion of an inactive intake.
 
 use chrono::Utc;
 use serenity::builder::CreateThread;
@@ -6,12 +7,13 @@ use serenity::model::channel::{ChannelType, GuildChannel, Message};
 use serenity::model::id::{ChannelId, MessageId};
 
 use crate::app::App;
-use crate::discord::history::{fetch_channel, fetch_thread_history, turn_context};
+use crate::discord::history::{fetch_channel, fetch_thread_history, is_not_found, turn_context};
 use crate::discord::pipeline::{first_message, last_message};
 use crate::discord::reply::{AppliedTurn, apply_intake_outcome, thread_name};
 use crate::routing::category::Category;
 use crate::routing::trigger::Trigger;
 use crate::store::intakes::{Intake, IntakeKind, NewIntake};
+use crate::workflows::{Outcome, TurnContext};
 
 /// The thread of an intake, and the message that Nuki replies to in it.
 struct IntakeThread {
@@ -28,6 +30,11 @@ pub(super) fn intake_category(kind: IntakeKind) -> Category {
     }
 }
 
+/// The workflow name of an intake of `kind` in the admin log.
+pub(super) fn intake_workflow(kind: IntakeKind) -> &'static str {
+    intake_category(kind).name()
+}
+
 /// Runs a turn of an open intake. A message of the reporter keeps the intake active.
 pub(super) async fn continue_intake(
     app: &App,
@@ -41,16 +48,7 @@ pub(super) async fn continue_intake(
             .touch(intake.id, *last.timestamp)
             .await?;
     }
-    let thread = fetch_channel(app, last.channel_id).await?;
-    let history = fetch_thread_history(app, &intake).await?;
-    let ctx = turn_context(
-        app,
-        Trigger::IntakeThread,
-        &thread.name,
-        history,
-        unit.len(),
-    )
-    .await?;
+    let ctx = thread_turn_context(app, &intake, unit.len()).await?;
     let _typing = last.channel_id.start_typing(&app.http);
     let outcome = app.intake.run_turn(&ctx, &intake).await?;
     let applied = AppliedTurn {
@@ -60,6 +58,64 @@ pub(super) async fn continue_intake(
         reply_to: Some(last.id),
     };
     apply_intake_outcome(app, &applied, &intake, outcome).await
+}
+
+/// Completes an intake whose reporter does not answer. An error goes to the admin log.
+pub(crate) async fn complete_inactive_intake(app: &App, intake: &Intake) {
+    if let Err(error) = complete_or_close(app, intake).await {
+        app.admin_log
+            .report_error(intake_workflow(intake.kind), intake.thread_id, &error)
+            .await;
+    }
+}
+
+/// Sends the report of the intake. An intake whose thread was deleted is closed without a report.
+async fn complete_or_close(app: &App, intake: &Intake) -> anyhow::Result<()> {
+    let ctx = match thread_turn_context(app, intake, 0).await {
+        Ok(ctx) => ctx,
+        Err(error) if is_deleted(&error) => return close_deleted(app, intake).await,
+        Err(error) => return Err(error),
+    };
+    let report = app.intake.complete_inactive(&ctx, intake).await?;
+    let applied = AppliedTurn {
+        trigger: Trigger::IntakeThread,
+        category: None,
+        channel_id: ChannelId::new(intake.thread_id),
+        reply_to: None,
+    };
+    let outcome = Outcome::Intake {
+        reply: None,
+        report: Some(report),
+    };
+    apply_intake_outcome(app, &applied, intake, outcome).await
+}
+
+/// Discord answers 404 for the thread when the thread or its parent channel was deleted.
+fn is_deleted(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<serenity::Error>()
+        .is_some_and(is_not_found)
+}
+
+async fn close_deleted(app: &App, intake: &Intake) -> anyhow::Result<()> {
+    app.store.intakes().mark_reported(intake.id).await?;
+    tracing::warn!(
+        intake_id = intake.id,
+        thread_id = intake.thread_id,
+        "the thread of the intake was deleted; the intake is closed without a report"
+    );
+    Ok(())
+}
+
+/// The turn context of the intake, with the history of its thread.
+async fn thread_turn_context(
+    app: &App,
+    intake: &Intake,
+    unit_len: usize,
+) -> anyhow::Result<TurnContext> {
+    let thread = fetch_channel(app, ChannelId::new(intake.thread_id)).await?;
+    let history = fetch_thread_history(app, intake).await?;
+    turn_context(app, Trigger::IntakeThread, &thread.name, history, unit_len).await
 }
 
 /// Opens the intake in a thread, stores its record, and runs its first turn.

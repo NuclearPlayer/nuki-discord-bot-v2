@@ -12,7 +12,7 @@ use crate::discord::attachments::ResolvedMessage;
 use crate::discord::context::jev_lines;
 use crate::discord::handler::facts_of;
 use crate::discord::history::{fetch_channel, fetch_unit_context, turn_context};
-use crate::discord::intake_thread::{continue_intake, intake_category, start_intake};
+use crate::discord::intake_thread::{continue_intake, intake_workflow, start_intake};
 use crate::discord::reply::{AppliedTurn, apply_outcome};
 use crate::routing::category::Category;
 use crate::routing::dispatch::{Decision, decide, describe};
@@ -92,7 +92,7 @@ async fn handle_unit(app: &App, unit: &[Message]) -> Result<(), Failure> {
     match trigger {
         Trigger::IntakeThread => {
             let intake = intake.expect("only the thread of an open intake has this trigger");
-            let workflow = intake_category(intake.kind).name();
+            let workflow = intake_workflow(intake.kind);
             continue_intake(app, unit, intake)
                 .await
                 .in_workflow(workflow)

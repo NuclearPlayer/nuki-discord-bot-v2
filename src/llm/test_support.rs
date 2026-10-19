@@ -9,6 +9,13 @@ use crate::sandbox::declarations::tool_description;
 use crate::sandbox::test_support::echo_table;
 use crate::test_support::json_response;
 
+/// Rig's fixed extraction preamble, which `append_preamble` keeps before the system prompt.
+pub(crate) const RIG_EXTRACTION_PREAMBLE: &str = "You are an AI assistant whose purpose is to extract structured data from the provided text.\n\
+    You will have access to a `submit` function that defines the structure of the data to extract from the provided text.\n\
+    Use the `submit` function to submit the structured data.\n\
+    Be sure to fill out every field and ALWAYS CALL THE `submit` function, even with default values!!!.\n                \n\n\
+    =============== ADDITIONAL INSTRUCTIONS ===============\n";
+
 pub(crate) async fn mount_llm_replies(server: &MockServer, replies: &[&str]) {
     for body in replies {
         Mock::given(method("POST"))

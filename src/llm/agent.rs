@@ -162,7 +162,8 @@ mod tests {
 
     use super::*;
     use crate::llm::test_support::{
-        assert_echo_tool_turn, llm_request_bodies, messages, mount_llm_replies, run_script_tools,
+        RIG_EXTRACTION_PREAMBLE, assert_echo_tool_turn, llm_request_bodies, messages,
+        mount_llm_replies, run_script_tools,
     };
     use crate::sandbox::runtime::SandboxLimits;
     use crate::sandbox::test_support::echo_table;
@@ -336,11 +337,4 @@ mod tests {
             ])
         );
     }
-
-    /// Rig's fixed extraction preamble, which `append_preamble` keeps before the system prompt.
-    const RIG_EXTRACTION_PREAMBLE: &str = "You are an AI assistant whose purpose is to extract structured data from the provided text.\n\
-        You will have access to a `submit` function that defines the structure of the data to extract from the provided text.\n\
-        Use the `submit` function to submit the structured data.\n\
-        Be sure to fill out every field and ALWAYS CALL THE `submit` function, even with default values!!!.\n                \n\n\
-        =============== ADDITIONAL INSTRUCTIONS ===============\n";
 }

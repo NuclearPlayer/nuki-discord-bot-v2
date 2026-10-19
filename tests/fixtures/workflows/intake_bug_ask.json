@@ -1,0 +1,21 @@
+{
+  "id": "gen-intake-ask",
+  "object": "chat.completion",
+  "created": 1789000000,
+  "model": "test/model",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "Thanks! Which operating system are you on, and which plugins do you use?"
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 60,
+    "completion_tokens": 20,
+    "total_tokens": 80
+  }
+}

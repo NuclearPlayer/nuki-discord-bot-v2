@@ -1,0 +1,21 @@
+{
+  "id": "gen-intake-final",
+  "object": "chat.completion",
+  "created": 1789000000,
+  "model": "test/model",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "Nuclear v1.5.0 has a fix for gapless playback that possibly fixes this. Please update. I sent the report to the team."
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 60,
+    "completion_tokens": 20,
+    "total_tokens": 80
+  }
+}

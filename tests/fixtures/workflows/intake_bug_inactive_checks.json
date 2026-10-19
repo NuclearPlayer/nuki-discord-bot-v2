@@ -1,0 +1,21 @@
+{
+  "id": "gen-intake-inactive",
+  "object": "chat.completion",
+  "created": 1789000000,
+  "model": "test/model",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "No release after v1.4.0 changes the playback queue. I found no fix."
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 60,
+    "completion_tokens": 20,
+    "total_tokens": 80
+  }
+}

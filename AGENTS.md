@@ -13,7 +13,7 @@ The bot is one crate, `nuki`. `src/main.rs` only calls `nuki::run()` in `src/lib
 | `src/config.rs` | The typed `Config` from the environment variables, and the load of `.env`. |
 | `src/logging.rs` | The `tracing` subscriber, filtered by `RUST_LOG`. |
 | `src/tasks.rs` | The background tasks: the periodic `git fetch` and the intake timeout. |
-| `src/discord/` | The Serenity handler, the message pipeline, `/change-model`, the history and context builder, attachments, and the reply sender. |
+| `src/discord/` | The Serenity handler, the message pipeline, `/change-model`, the history and context builder, attachments, the reply sender, and the usage events of the pipeline. |
 | `src/routing/` | The trigger rules in code, the debounce, the Jev classification, the thresholds and the chat cooldown, and the `Decision`. |
 | `src/decisions/` | The client and the types of the Jev Decisions API on OpenRouter. |
 | `src/llm/` | The OpenRouter LLM agent with its limits, the `run_script` tool, the models list, and the active model. |

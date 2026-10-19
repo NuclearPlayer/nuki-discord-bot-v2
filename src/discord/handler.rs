@@ -14,8 +14,7 @@ use crate::discord::history::is_system;
 use crate::routing::debounce::Debouncer;
 use crate::routing::trigger::{MessageFacts, trigger_of};
 
-/// `nuki_role_id` is the managed role of Nuki in the server of the message. A mention of that
-/// role is a mention of Nuki.
+/// `nuki_role_id` is the managed role of Nuki in the server of the message.
 pub fn facts_of(
     message: &Message,
     nuki_user_id: u64,
@@ -23,14 +22,14 @@ pub fn facts_of(
     in_open_intake_thread: bool,
 ) -> MessageFacts {
     let nuki = UserId::new(nuki_user_id);
-    let mentions_nuki_role =
-        nuki_role_id.is_some_and(|role_id| message.mention_roles.contains(&role_id));
     MessageFacts {
         author_is_bot: message.author.bot,
         is_system: is_system(message),
         is_dm: message.guild_id.is_none(),
         in_open_intake_thread,
-        mentions_nuki: message.mentions_user_id(nuki) || mentions_nuki_role,
+        mentions_nuki: message.mentions_user_id(nuki),
+        mentions_nuki_role: nuki_role_id
+            .is_some_and(|role_id| message.mention_roles.contains(&role_id)),
         replies_to_nuki: message
             .referenced_message
             .as_deref()
@@ -75,7 +74,14 @@ impl EventHandler for Handler {
         let app = &self.app;
         let answered = match &interaction {
             Interaction::Command(command) if command.data.name == CHANGE_MODEL_COMMAND => {
-                commands::execute(&ctx.http, command, &app.models, &app.active_model).await
+                commands::execute(
+                    &ctx.http,
+                    command,
+                    &app.models,
+                    &app.active_model,
+                    &app.stats,
+                )
+                .await
             }
             Interaction::Autocomplete(command) if command.data.name == CHANGE_MODEL_COMMAND => {
                 commands::autocomplete(&ctx.http, command, &app.models).await
@@ -114,6 +120,7 @@ mod tests {
                 is_dm: false,
                 in_open_intake_thread: false,
                 mentions_nuki: false,
+                mentions_nuki_role: false,
                 replies_to_nuki: false,
             }
         );
@@ -133,6 +140,7 @@ mod tests {
                 is_dm: false,
                 in_open_intake_thread: true,
                 mentions_nuki: false,
+                mentions_nuki_role: false,
                 replies_to_nuki: true,
             }
         );
@@ -152,6 +160,7 @@ mod tests {
                 is_dm: false,
                 in_open_intake_thread: false,
                 mentions_nuki: true,
+                mentions_nuki_role: false,
                 replies_to_nuki: false,
             }
         );
@@ -170,7 +179,8 @@ mod tests {
                 is_system: false,
                 is_dm: false,
                 in_open_intake_thread: false,
-                mentions_nuki: true,
+                mentions_nuki: false,
+                mentions_nuki_role: true,
                 replies_to_nuki: false,
             }
         );
@@ -190,6 +200,7 @@ mod tests {
                 is_dm: false,
                 in_open_intake_thread: false,
                 mentions_nuki: false,
+                mentions_nuki_role: false,
                 replies_to_nuki: false,
             }
         );
@@ -209,6 +220,7 @@ mod tests {
                 is_dm: false,
                 in_open_intake_thread: false,
                 mentions_nuki: false,
+                mentions_nuki_role: false,
                 replies_to_nuki: false,
             }
         );
@@ -228,6 +240,7 @@ mod tests {
                 is_dm: false,
                 in_open_intake_thread: false,
                 mentions_nuki: false,
+                mentions_nuki_role: false,
                 replies_to_nuki: false,
             }
         );
@@ -245,6 +258,7 @@ mod tests {
                 is_dm: true,
                 in_open_intake_thread: false,
                 mentions_nuki: false,
+                mentions_nuki_role: false,
                 replies_to_nuki: false,
             }
         );

@@ -10,13 +10,14 @@ use crate::app::App;
 use crate::discord::history::{fetch_channel, fetch_thread_history};
 use crate::discord::http_error::is_not_found;
 use crate::discord::pipeline::{first_message, last_message};
-use crate::discord::reply::{AppliedTurn, apply_intake_outcome, thread_name};
+use crate::discord::reply::{AppliedTurn, ReportedBy, apply_intake_outcome, thread_name};
 use crate::discord::turn_context::turn_context;
 use crate::routing::category::Category;
 use crate::routing::trigger::Trigger;
-use crate::stats::recorder::{RunStats, run_id_of_timeout, run_id_of_unit};
+use crate::stats::event::{Event, IntakeOpened, ThreadCreated};
+use crate::stats::recorder::{EventScope, RunStats, run_id_of_timeout};
 use crate::store::intakes::{Intake, IntakeKind, NewIntake};
-use crate::workflows::{Outcome, TurnContext};
+use crate::workflows::{Outcome, TurnContext, timed};
 
 /// The thread of an intake, and the message that Nuki replies to in it.
 struct IntakeThread {
@@ -35,11 +36,13 @@ pub(super) fn intake_workflow(kind: IntakeKind) -> &'static str {
     category.name()
 }
 
-/// Runs a turn of an open intake. A message of the reporter keeps the intake active.
+/// Runs a turn of an open intake, in the run of `stats`. A message of the reporter keeps the
+/// intake active.
 pub(super) async fn continue_intake(
     app: &App,
     unit: &[Message],
     intake: Intake,
+    stats: &RunStats,
 ) -> anyhow::Result<()> {
     let last = last_message(unit);
     if last.author.id.get() == intake.reporter_id {
@@ -48,26 +51,61 @@ pub(super) async fn continue_intake(
             .touch(intake.id, *last.timestamp)
             .await?;
     }
-    let run_id = run_id_of_unit(last.id.get());
-    let ctx = thread_turn_context(app, &intake, unit.len(), run_id).await?;
+    let thread = fetch_intake_thread(app, &intake).await?;
+    let ctx = thread_turn_context(app, &intake, &thread, unit.len(), stats.clone()).await?;
     let _typing = last.channel_id.start_typing(&app.http);
-    let outcome = app.intake.run_turn(&ctx, &intake).await?;
+    let workflow = intake_workflow(intake.kind);
+    let outcome = timed(stats, workflow, app.intake.run_turn(&ctx, &intake)).await?;
     let applied = AppliedTurn {
         channel_id: last.channel_id,
         reply_to: Some(last.id),
     };
-    apply_intake_outcome(app, &applied, &intake, outcome).await
+    apply_intake_outcome(app, stats, &applied, &intake, outcome, ReportedBy::Reporter).await
 }
 
-/// Completes an intake whose reporter does not answer. An error goes to the admin log, and the
-/// intake is touched, so the next attempt waits one full intake timeout.
+/// Completes an intake whose reporter does not answer, in two steps. First the thread is
+/// fetched: an intake whose thread was deleted is closed without a report. Then the completion
+/// runs as one run in the thread. An error goes to the admin log, with the scope of the thread
+/// before the run and the scope of the run after.
 pub(crate) async fn complete_inactive_intake(app: &App, intake: &Intake) {
-    if let Err(error) = complete_or_close(app, intake).await {
-        app.admin_log
-            .report_error(intake_workflow(intake.kind), intake.thread_id, &error)
-            .await;
-        postpone(app, intake).await;
+    let thread = match fetch_intake_thread(app, intake).await {
+        Ok(thread) => thread,
+        Err(error) => {
+            if let Err(error) = close_if_deleted(app, intake, error).await {
+                report_failure(app, intake, thread_scope(intake), &error).await;
+            }
+            return;
+        }
+    };
+    let stats = app.stats.run(
+        run_id_of_timeout(intake.id, Utc::now()),
+        thread.guild_id.get(),
+        intake.thread_id,
+    );
+    if let Err(error) = complete(app, intake, &thread, &stats).await {
+        report_failure(app, intake, stats.scope(None), &error).await;
     }
+}
+
+async fn fetch_intake_thread(app: &App, intake: &Intake) -> anyhow::Result<GuildChannel> {
+    fetch_channel(app, ChannelId::new(intake.thread_id)).await
+}
+
+/// Closes the intake when `error` tells that its thread was deleted. Else gives the error back.
+async fn close_if_deleted(app: &App, intake: &Intake, error: anyhow::Error) -> anyhow::Result<()> {
+    if !is_deleted(&error) {
+        return Err(error);
+    }
+    close_deleted(app, intake).await
+}
+
+/// Sends the error to the admin log, and touches the intake, so the next attempt waits one full
+/// intake timeout.
+async fn report_failure(app: &App, intake: &Intake, scope: EventScope, error: &anyhow::Error) {
+    app.admin_log
+        .report_error(scope, intake_workflow(intake.kind), error)
+        .await;
+    postpone(app, intake).await;
 }
 
 async fn postpone(app: &App, intake: &Intake) {
@@ -79,24 +117,44 @@ async fn postpone(app: &App, intake: &Intake) {
     }
 }
 
-/// Sends the report of the intake. An intake whose thread was deleted is closed without a report.
-async fn complete_or_close(app: &App, intake: &Intake) -> anyhow::Result<()> {
-    let run_id = run_id_of_timeout(intake.id, Utc::now());
-    let ctx = match thread_turn_context(app, intake, 0, run_id).await {
-        Ok(ctx) => ctx,
-        Err(error) if is_deleted(&error) => return close_deleted(app, intake).await,
-        Err(error) => return Err(error),
-    };
-    let report = app.intake.complete_inactive(&ctx, intake).await?;
+/// The scope of an event in the thread of the intake, outside a run.
+fn thread_scope(intake: &Intake) -> EventScope {
+    EventScope {
+        run_id: None,
+        guild_id: None,
+        channel_id: Some(intake.thread_id),
+        user_id: None,
+    }
+}
+
+/// Completes the intake in its thread, in the run of `stats`, and sends the report.
+async fn complete(
+    app: &App,
+    intake: &Intake,
+    thread: &GuildChannel,
+    stats: &RunStats,
+) -> anyhow::Result<()> {
+    let ctx = thread_turn_context(app, intake, thread, 0, stats.clone()).await?;
+    let workflow = intake_workflow(intake.kind);
+    let outcome = timed(stats, workflow, inactive_outcome(app, &ctx, intake)).await?;
     let applied = AppliedTurn {
         channel_id: ChannelId::new(intake.thread_id),
         reply_to: None,
     };
-    let outcome = Outcome::Intake {
+    apply_intake_outcome(app, stats, &applied, intake, outcome, ReportedBy::Timeout).await
+}
+
+/// The outcome of an inactive intake: the report, and no reply.
+async fn inactive_outcome(
+    app: &App,
+    ctx: &TurnContext,
+    intake: &Intake,
+) -> anyhow::Result<Outcome> {
+    let report = app.intake.complete_inactive(ctx, intake).await?;
+    Ok(Outcome::Intake {
         reply: None,
         report: Some(report),
-    };
-    apply_intake_outcome(app, &applied, intake, outcome).await
+    })
 }
 
 /// Discord answers 404 for the thread when the thread or its parent channel was deleted.
@@ -116,18 +174,15 @@ async fn close_deleted(app: &App, intake: &Intake) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The turn context of the intake: the server and the history of its thread, and the recorder of
-/// the run `run_id` in the thread.
+/// The turn context of the intake in its thread, with the history of the thread, in the run of
+/// `stats`.
 async fn thread_turn_context(
     app: &App,
     intake: &Intake,
+    thread: &GuildChannel,
     unit_len: usize,
-    run_id: String,
+    stats: RunStats,
 ) -> anyhow::Result<TurnContext> {
-    let thread = fetch_channel(app, ChannelId::new(intake.thread_id)).await?;
-    let stats = app
-        .stats
-        .run(run_id, thread.guild_id.get(), intake.thread_id);
     let history = fetch_thread_history(app, thread.guild_id, intake).await?;
     turn_context(
         app,
@@ -141,17 +196,18 @@ async fn thread_turn_context(
     .await
 }
 
-/// Opens the intake in a thread, stores its record, and runs its first turn.
+/// Opens the intake in a thread, stores its record, and runs its first turn, in the run of
+/// `stats`.
 pub(super) async fn start_intake(
     app: &App,
     unit: &[Message],
     channel: &GuildChannel,
     trigger: Trigger,
     kind: IntakeKind,
-    stats: RunStats,
+    stats: &RunStats,
 ) -> anyhow::Result<()> {
     let last = last_message(unit);
-    let thread = intake_thread(app, channel, last).await?;
+    let thread = intake_thread(app, channel, last, stats).await?;
     let _typing = thread.id.start_typing(&app.http);
     let intake = app
         .store
@@ -165,6 +221,14 @@ pub(super) async fn start_intake(
             created_at: Utc::now(),
         })
         .await?;
+    let opened = IntakeOpened {
+        intake_id: intake.id,
+        intake_kind: intake.kind,
+        thread_id: intake.thread_id,
+    };
+    stats
+        .record(Some(intake.reporter_id), Event::IntakeOpened(opened))
+        .await;
     let guild_id = channel.guild_id;
     let history = fetch_thread_history(app, guild_id, &intake).await?;
     let ctx = turn_context(
@@ -174,15 +238,20 @@ pub(super) async fn start_intake(
         &thread.name,
         history,
         unit.len(),
-        stats,
+        stats.clone(),
     )
     .await?;
-    let outcome = app.intake.run_turn(&ctx, &intake).await?;
+    let outcome = timed(
+        stats,
+        intake_workflow(kind),
+        app.intake.run_turn(&ctx, &intake),
+    )
+    .await?;
     let applied = AppliedTurn {
         channel_id: thread.id,
         reply_to: thread.reply_to,
     };
-    apply_intake_outcome(app, &applied, &intake, outcome).await
+    apply_intake_outcome(app, stats, &applied, &intake, outcome, ReportedBy::Reporter).await
 }
 
 /// A unit in a thread or a forum post uses that thread. Else the bot makes a public thread from
@@ -191,6 +260,7 @@ async fn intake_thread(
     app: &App,
     channel: &GuildChannel,
     last: &Message,
+    stats: &RunStats,
 ) -> anyhow::Result<IntakeThread> {
     if is_thread(channel) {
         return Ok(IntakeThread {
@@ -204,6 +274,14 @@ async fn intake_thread(
         .id
         .create_thread_from_message(&app.http, last.id, CreateThread::new(name))
         .await?;
+    let created = ThreadCreated {
+        thread_id: thread.id.get(),
+        message_id: last.id.get(),
+        name: thread.name.clone(),
+    };
+    stats
+        .record(Some(last.author.id.get()), Event::ThreadCreated(created))
+        .await;
     Ok(IntakeThread {
         id: thread.id,
         name: thread.name,

@@ -60,13 +60,17 @@ pub struct RunStats {
 
 impl RunStats {
     pub async fn record(&self, user_id: Option<u64>, event: Event) {
-        let scope = EventScope {
+        self.stats.record(self.scope(user_id), event).await;
+    }
+
+    /// The scope of an event of this run about `user_id`.
+    pub fn scope(&self, user_id: Option<u64>) -> EventScope {
+        EventScope {
             run_id: Some(self.run_id.clone()),
             guild_id: Some(self.guild_id),
             channel_id: Some(self.channel_id),
             user_id,
-        };
-        self.stats.record(scope, event).await;
+        }
     }
 
     pub fn run_id(&self) -> &str {

@@ -14,6 +14,8 @@ use serenity::model::id::{ChannelId, GuildId, MessageId};
 use thiserror::Error;
 
 use super::views::{EmojiView, MessageView, SearchResult};
+use crate::stats::event::{EmojiCreated, Event, ReactionAdded};
+use crate::stats::recorder::RunStats;
 
 const DEFAULT_SEARCH_LIMIT: u32 = 25;
 const DEFAULT_LIST_LIMIT: u32 = 50;
@@ -27,6 +29,8 @@ pub struct DiscordOps {
     pub api_base: String,
     pub bot_token: String,
     pub guild_id: u64,
+    /// The recorder of the run whose scripts call the operations.
+    pub stats: RunStats,
 }
 
 #[derive(Debug, Error)]
@@ -192,6 +196,11 @@ impl DiscordOps {
         let emoji = ReactionType::try_from(params.emoji.as_str())
             .map_err(|_| DiscordOpError::InvalidEmoji(params.emoji.clone()))?;
         channel.create_reaction(&self.http, message, emoji).await?;
+        let added = ReactionAdded {
+            message_id: message.get(),
+            emoji: params.emoji,
+        };
+        self.stats.record(None, Event::ReactionAdded(added)).await;
         Ok(json!({ "ok": true }))
     }
 
@@ -207,6 +216,11 @@ impl DiscordOps {
         let emoji = GuildId::new(self.guild_id)
             .create_emoji(&self.http, &params.name, &image)
             .await?;
+        let created = EmojiCreated {
+            emoji_id: emoji.id.get(),
+            name: emoji.name.clone(),
+        };
+        self.stats.record(None, Event::EmojiCreated(created)).await;
         Ok(EmojiView::from(&emoji))
     }
 

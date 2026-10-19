@@ -2,10 +2,14 @@
 
 use chrono::Utc;
 use serenity::builder::CreateMessage;
+use serenity::http::Http;
 use serenity::model::id::{ChannelId, MessageId};
 
 use crate::admin::reports::report_embed;
 use crate::app::App;
+use crate::stats::event::{Event, IntakeReported, ReplySent};
+use crate::stats::recorder::RunStats;
+use crate::store::Store;
 use crate::store::intakes::Intake;
 use crate::workflows::intake::report::Report;
 use crate::workflows::{Outcome, Reply};
@@ -25,6 +29,15 @@ pub struct AppliedTurn {
     pub reply_to: Option<MessageId>,
 }
 
+/// What completes an intake and sends its report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportedBy {
+    /// The conversation in the thread gave all fields.
+    Reporter,
+    /// The reporter did not answer for the intake timeout.
+    Timeout,
+}
+
 /// The start of the content on one line, or the author name when the content is empty.
 pub fn thread_name(content: &str, author_name: &str) -> String {
     let one_line = content.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -34,15 +47,17 @@ pub fn thread_name(content: &str, author_name: &str) -> String {
     one_line.chars().take(THREAD_NAME_CHARS).collect()
 }
 
-/// Applies the outcome of a turn outside an intake. Only an intake turn has an intake outcome.
+/// Applies the outcome of a turn outside an intake, in the run of `stats`. Only an intake turn
+/// has an intake outcome.
 pub async fn apply_outcome(
     app: &App,
+    stats: &RunStats,
     applied: &AppliedTurn,
     outcome: Outcome,
 ) -> anyhow::Result<()> {
     match outcome {
         Outcome::Nothing => Ok(()),
-        Outcome::Reply(reply) => send_reply(app, applied, reply).await,
+        Outcome::Reply(reply) => send_reply(&app.http, &app.store, stats, applied, reply).await,
         Outcome::Intake { .. } => {
             anyhow::bail!("a turn outside an intake returned an intake outcome")
         }
@@ -52,25 +67,44 @@ pub async fn apply_outcome(
 /// Applies the outcome of a turn of `intake`: the reply, then the report, which closes the intake.
 pub async fn apply_intake_outcome(
     app: &App,
+    stats: &RunStats,
     applied: &AppliedTurn,
     intake: &Intake,
     outcome: Outcome,
+    reported_by: ReportedBy,
 ) -> anyhow::Result<()> {
     let Outcome::Intake { reply, report } = outcome else {
-        return apply_outcome(app, applied, outcome).await;
+        return apply_outcome(app, stats, applied, outcome).await;
     };
     if let Some(reply) = reply {
-        send_reply(app, applied, reply).await?;
+        send_reply(&app.http, &app.store, stats, applied, reply).await?;
     }
     if let Some(report) = report {
-        send_report(app, intake, &report).await?;
+        let admin_log = ChannelId::new(app.config.admin_log_channel_id);
+        send_report(
+            &app.http,
+            &app.store,
+            admin_log,
+            stats,
+            intake,
+            &report,
+            reported_by,
+        )
+        .await?;
     }
     Ok(())
 }
 
 /// Sends the text in parts that Discord accepts: the first part as the reply, the rest as usual
-/// messages in the same channel. Stores the tool turn with the ID of the first message.
-async fn send_reply(app: &App, applied: &AppliedTurn, reply: Reply) -> anyhow::Result<()> {
+/// messages in the same channel. Stores the tool turn with the ID of the first message, and
+/// records the IDs of all parts.
+async fn send_reply(
+    http: &Http,
+    store: &Store,
+    stats: &RunStats,
+    applied: &AppliedTurn,
+    reply: Reply,
+) -> anyhow::Result<()> {
     let mut parts = split_reply(&reply.text).into_iter();
     let first = parts.next().expect("split_reply returns at least one part");
     let message = CreateMessage::new().content(first);
@@ -78,20 +112,28 @@ async fn send_reply(app: &App, applied: &AppliedTurn, reply: Reply) -> anyhow::R
         Some(message_id) => message.reference_message((applied.channel_id, message_id)),
         None => message,
     };
-    let sent = applied.channel_id.send_message(&app.http, message).await?;
-    save_tool_turn(app, applied.channel_id, sent.id, &reply).await?;
+    let sent = applied.channel_id.send_message(http, message).await?;
+    save_tool_turn(store, applied.channel_id, sent.id, &reply).await?;
+    let mut message_ids = vec![sent.id.get()];
     for part in parts {
-        applied
+        let sent = applied
             .channel_id
-            .send_message(&app.http, CreateMessage::new().content(part))
+            .send_message(http, CreateMessage::new().content(part))
             .await?;
+        message_ids.push(sent.id.get());
     }
+    let reply_sent = ReplySent {
+        message_ids,
+        reply_to: applied.reply_to.map(MessageId::get),
+        text: reply.text,
+    };
+    stats.record(None, Event::ReplySent(reply_sent)).await;
     Ok(())
 }
 
 /// Stores the tool messages of the reply with the ID of the message that starts the reply.
 async fn save_tool_turn(
-    app: &App,
+    store: &Store,
     channel_id: ChannelId,
     message_id: MessageId,
     reply: &Reply,
@@ -99,7 +141,7 @@ async fn save_tool_turn(
     if reply.turn_messages.is_empty() {
         return Ok(());
     }
-    app.store
+    store
         .tool_turns()
         .save(
             channel_id.get(),
@@ -148,17 +190,216 @@ fn fits(part: &str, piece: &str) -> bool {
 }
 
 /// Sends the report to the admin log channel, then closes the intake.
-async fn send_report(app: &App, intake: &Intake, report: &Report) -> anyhow::Result<()> {
-    ChannelId::new(app.config.admin_log_channel_id)
-        .send_message(&app.http, CreateMessage::new().embed(report_embed(report)))
+async fn send_report(
+    http: &Http,
+    store: &Store,
+    admin_log: ChannelId,
+    stats: &RunStats,
+    intake: &Intake,
+    report: &Report,
+    reported_by: ReportedBy,
+) -> anyhow::Result<()> {
+    admin_log
+        .send_message(http, CreateMessage::new().embed(report_embed(report)))
         .await?;
-    app.store.intakes().mark_reported(intake.id).await?;
+    store.intakes().mark_reported(intake.id).await?;
+    let reported = IntakeReported {
+        intake_id: intake.id,
+        intake_kind: intake.kind,
+        complete: report.missing.is_empty(),
+        missing: report.missing.clone(),
+        by_timeout: reported_by == ReportedBy::Timeout,
+    };
+    stats
+        .record(Some(intake.reporter_id), Event::IntakeReported(reported))
+        .await;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer};
+
     use super::*;
+    use crate::stats::test_support::{RunEvent, events_between, run_event, test_run};
+    use crate::store::intakes::{IntakeKind, NewIntake};
+    use crate::test_support::{discord_http, json_response};
+    use crate::workflows::intake::report::{FeatureReport, ReportBody};
+
+    const SENT_MESSAGE: &str = include_str!("../../tests/fixtures/discord/reply_sent_message.json");
+    const SENT_MESSAGE_ID: &str = "SENT_MESSAGE_ID";
+    const CHANNEL_ID: u64 = 1200000000000000003;
+    const ADMIN_SENT_MESSAGE: &str =
+        include_str!("../../tests/fixtures/discord/admin_log_sent_message.json");
+    const ADMIN_CHANNEL_ID: u64 = 1200000000000000009;
+    const THREAD_ID: u64 = 1200000000000000004;
+    const REPORTER_ID: u64 = 1300000000000000002;
+
+    async fn mount_admin_channel(discord: &MockServer) {
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/api/v10/channels/{ADMIN_CHANNEL_ID}/messages"
+            )))
+            .respond_with(json_response(200, ADMIN_SENT_MESSAGE))
+            .mount(discord)
+            .await;
+    }
+
+    async fn open_intake(store: &Store) -> Intake {
+        store
+            .intakes()
+            .create(NewIntake {
+                kind: IntakeKind::Feature,
+                thread_id: THREAD_ID,
+                origin_channel_id: CHANNEL_ID,
+                origin_message_id: 1100000000000000001,
+                reporter_id: REPORTER_ID,
+                created_at: Utc::now(),
+            })
+            .await
+            .unwrap()
+    }
+
+    fn feature_report(missing: Vec<String>) -> Report {
+        Report {
+            body: ReportBody::Feature(FeatureReport {
+                title: "Crossfade".to_string(),
+                what: "Crossfade between tracks".to_string(),
+                why: "unknown".to_string(),
+                summary: "The reporter wants a crossfade between tracks.".to_string(),
+                already_exists: None,
+            }),
+            reporter_id: REPORTER_ID,
+            thread_id: THREAD_ID,
+            missing,
+        }
+    }
+
+    /// Sends `report` of a new feature intake, and gives the events of the store.
+    async fn reported_events(report: Report, reported_by: ReportedBy) -> Vec<RunEvent> {
+        let discord = MockServer::start().await;
+        mount_admin_channel(&discord).await;
+        let (store, stats) = test_run().await;
+        let intake = open_intake(&store).await;
+        let before = Utc::now();
+
+        send_report(
+            &discord_http(&discord),
+            &store,
+            ChannelId::new(ADMIN_CHANNEL_ID),
+            &stats,
+            &intake,
+            &report,
+            reported_by,
+        )
+        .await
+        .unwrap();
+
+        let after = Utc::now();
+        events_between(&store, before, after).await
+    }
+
+    /// The `intake.reported` event about the reporter of the intake.
+    fn intake_reported(data: serde_json::Value) -> RunEvent {
+        RunEvent {
+            user_id: Some(REPORTER_ID),
+            ..run_event("intake.reported", data)
+        }
+    }
+
+    /// Discord answers the first message with the ID `first_id`, and each later one with `next_id`.
+    async fn mount_sent_messages(discord: &MockServer, first_id: &str, next_id: &str) {
+        let messages = format!("/api/v10/channels/{CHANNEL_ID}/messages");
+        Mock::given(method("POST"))
+            .and(path(&messages))
+            .respond_with(json_response(
+                200,
+                &SENT_MESSAGE.replace(SENT_MESSAGE_ID, first_id),
+            ))
+            .up_to_n_times(1)
+            .mount(discord)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(&messages))
+            .respond_with(json_response(
+                200,
+                &SENT_MESSAGE.replace(SENT_MESSAGE_ID, next_id),
+            ))
+            .mount(discord)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn send_reply_records_the_sent_message_ids_and_the_text() {
+        let discord = MockServer::start().await;
+        mount_sent_messages(&discord, "1100000000000000031", "1100000000000000032").await;
+        let (store, stats) = test_run().await;
+        let text = format!("{}\n{}", "a".repeat(1200), "b".repeat(900));
+        let applied = AppliedTurn {
+            channel_id: ChannelId::new(CHANNEL_ID),
+            reply_to: Some(MessageId::new(1100000000000000001)),
+        };
+        let reply = Reply {
+            text: text.clone(),
+            turn_messages: vec![],
+        };
+        let before = Utc::now();
+
+        send_reply(&discord_http(&discord), &store, &stats, &applied, reply)
+            .await
+            .unwrap();
+
+        let after = Utc::now();
+        assert_eq!(
+            events_between(&store, before, after).await,
+            vec![run_event(
+                "reply.sent",
+                json!({
+                    "message_ids": [1100000000000000031_u64, 1100000000000000032_u64],
+                    "reply_to": 1100000000000000001_u64,
+                    "text": text,
+                }),
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn send_report_records_an_incomplete_report_by_the_timeout() {
+        let report = feature_report(vec!["Why".to_string()]);
+
+        let events = reported_events(report, ReportedBy::Timeout).await;
+
+        assert_eq!(
+            events,
+            vec![intake_reported(json!({
+                "intake_id": 1,
+                "intake_kind": "feature",
+                "complete": false,
+                "missing": ["Why"],
+                "by_timeout": true,
+            }))]
+        );
+    }
+
+    #[tokio::test]
+    async fn send_report_records_a_complete_report_by_the_reporter() {
+        let report = feature_report(vec![]);
+
+        let events = reported_events(report, ReportedBy::Reporter).await;
+
+        assert_eq!(
+            events,
+            vec![intake_reported(json!({
+                "intake_id": 1,
+                "intake_kind": "feature",
+                "complete": true,
+                "missing": [],
+                "by_timeout": false,
+            }))]
+        );
+    }
 
     #[test]
     fn thread_name_takes_the_first_100_characters_on_one_line() {

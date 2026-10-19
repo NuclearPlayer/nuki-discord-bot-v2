@@ -10,6 +10,7 @@
     "type": 1,
     "options": [{ "name": "model", "type": 3, "value": "MODEL_ID" }]
   },
+  "guild_id": "1000000000000000001",
   "channel_id": "1200000000000000001",
   "user": {
     "id": "1300000000000000001",

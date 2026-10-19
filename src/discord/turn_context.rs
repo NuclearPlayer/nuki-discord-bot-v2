@@ -32,7 +32,7 @@ pub async fn turn_context(
         unit_len,
         stored_turns,
         runtime: runtime_context(app, guild_id, channel_name).await?,
-        sandbox: app.sandbox_for(guild_id),
+        sandbox: app.sandbox_for(guild_id, stats.clone()),
         stats,
     })
 }

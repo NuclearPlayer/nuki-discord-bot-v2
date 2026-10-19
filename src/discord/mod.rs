@@ -3,6 +3,7 @@ pub mod authors;
 pub mod chat_message;
 pub mod commands;
 pub mod context;
+pub(crate) mod events;
 pub mod handler;
 pub mod history;
 mod http_error;

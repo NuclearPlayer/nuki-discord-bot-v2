@@ -31,7 +31,10 @@ pub struct MessageFacts {
     pub is_system: bool,
     pub is_dm: bool,
     pub in_open_intake_thread: bool,
+    /// A mention of the user of Nuki.
     pub mentions_nuki: bool,
+    /// A mention of the managed role of Nuki.
+    pub mentions_nuki_role: bool,
     pub replies_to_nuki: bool,
 }
 
@@ -42,7 +45,7 @@ pub fn trigger_of(facts: &MessageFacts) -> Option<Trigger> {
     if facts.in_open_intake_thread {
         return Some(Trigger::IntakeThread);
     }
-    if facts.mentions_nuki || facts.replies_to_nuki {
+    if facts.mentions_nuki || facts.mentions_nuki_role || facts.replies_to_nuki {
         return Some(Trigger::Direct);
     }
     Some(Trigger::Unsolicited)
@@ -72,6 +75,7 @@ mod tests {
         is_dm: false,
         in_open_intake_thread: false,
         mentions_nuki: false,
+        mentions_nuki_role: false,
         replies_to_nuki: false,
     };
 

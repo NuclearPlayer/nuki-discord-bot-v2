@@ -3,6 +3,9 @@ pub mod help;
 pub mod intake;
 #[cfg(test)]
 pub(crate) mod test_support;
+mod timed;
+
+pub use timed::timed;
 
 use std::collections::HashMap;
 use std::future::Future;

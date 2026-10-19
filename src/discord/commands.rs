@@ -6,10 +6,13 @@ use serenity::builder::{
     CreateInteractionResponseMessage,
 };
 use serenity::http::Http;
+use serenity::model::id::GuildId;
 use thiserror::Error;
 
 use crate::llm::models_list::{ModelChoice, ModelsClient, ModelsError, choices};
 use crate::llm::selection::ActiveModel;
+use crate::stats::event::{Event, ModelChanged};
+use crate::stats::recorder::{EventScope, Stats};
 use crate::store::StoreError;
 use crate::store::settings::ModelSelection;
 
@@ -91,11 +94,23 @@ pub async fn execute(
     interaction: &CommandInteraction,
     models: &ModelsClient,
     active: &ActiveModel,
+    stats: &Stats,
 ) -> Result<(), CommandError> {
     let model_id = model_option(interaction).expect("Discord always sends the required option");
     let user = interaction.user.tag();
-    let text = match change_model(models, active, model_id, &user).await {
-        Ok(text) => text,
+    let text = match change_model(models, active, model_id).await {
+        Ok(Some(previous)) => {
+            tracing::info!(user, previous, new = model_id, "the model changed");
+            let changed = ModelChanged {
+                previous: previous.clone(),
+                new: model_id.to_string(),
+            };
+            stats
+                .record(interaction_scope(interaction), Event::ModelChanged(changed))
+                .await;
+            changed_message(&previous, model_id)
+        }
+        Ok(None) => format!("Unknown model: {model_id}"),
         Err(error) => {
             tracing::error!(user, model_id, "could not change the model: {error}");
             format!("Could not change the model: {error}")
@@ -104,16 +119,27 @@ pub async fn execute(
     reply(http, interaction, text).await
 }
 
-/// Selects `model_id` if OpenRouter lists it, and gives the reply text.
+/// The scope of an event of the interaction: its server, its channel, and its user. An
+/// interaction is not part of a run.
+fn interaction_scope(interaction: &CommandInteraction) -> EventScope {
+    EventScope {
+        run_id: None,
+        guild_id: interaction.guild_id.map(GuildId::get),
+        channel_id: Some(interaction.channel_id.get()),
+        user_id: Some(interaction.user.id.get()),
+    }
+}
+
+/// Selects `model_id` if OpenRouter lists it, and gives the previous model. An unknown model
+/// gives `None`, and the model does not change.
 async fn change_model(
     models: &ModelsClient,
     active: &ActiveModel,
     model_id: &str,
-    user: &str,
-) -> Result<String, ChangeError> {
+) -> Result<Option<String>, ChangeError> {
     let listed = models.list().await?;
     let Some(model) = listed.into_iter().find(|model| model.id == model_id) else {
-        return Ok(format!("Unknown model: {model_id}"));
+        return Ok(None);
     };
 
     let previous = active.current().model_id;
@@ -123,9 +149,7 @@ async fn change_model(
             input_modalities: model.input_modalities,
         })
         .await?;
-    tracing::info!(user, previous, new = model_id, "the model changed");
-
-    Ok(changed_message(&previous, model_id))
+    Ok(Some(previous))
 }
 
 fn model_option(interaction: &CommandInteraction) -> Option<&str> {
@@ -159,11 +183,13 @@ fn changed_message(previous: &str, new: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use serde_json::{Value, json};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
+    use crate::stats::test_support::{RunEvent, events_between};
     use crate::store::Store;
     use crate::store::test_support::selection;
     use crate::test_support::{discord_http, json_response};
@@ -180,6 +206,8 @@ mod tests {
         http: Http,
         models: ModelsClient,
         active: ActiveModel,
+        store: Store,
+        stats: Stats,
     }
 
     impl Fixture {
@@ -197,8 +225,8 @@ mod tests {
                 .mount(&discord)
                 .await;
             let http = discord_http(&discord);
-            let settings = Store::open_in_memory().await.unwrap().settings();
-            let active = ActiveModel::load(settings, "google/gemini-3.8-flash")
+            let store = Store::open_in_memory().await.unwrap();
+            let active = ActiveModel::load(store.settings(), "google/gemini-3.8-flash")
                 .await
                 .unwrap();
             Fixture {
@@ -207,15 +235,23 @@ mod tests {
                 discord,
                 http,
                 active,
+                stats: Stats::new(store.events()),
+                store,
             }
         }
 
         async fn execute(&self, model_id: &str) {
             let interaction: CommandInteraction =
                 serde_json::from_str(&INTERACTION.replace("MODEL_ID", model_id)).unwrap();
-            execute(&self.http, &interaction, &self.models, &self.active)
-                .await
-                .unwrap();
+            execute(
+                &self.http,
+                &interaction,
+                &self.models,
+                &self.active,
+                &self.stats,
+            )
+            .await
+            .unwrap();
         }
 
         async fn callback_body(&self) -> Value {
@@ -247,6 +283,30 @@ mod tests {
         assert_eq!(
             fixture.active.current(),
             selection("anthropic/claude-sonnet-4", &["image", "text"])
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_records_the_model_change() {
+        let fixture = Fixture::start().await;
+        let before = Utc::now();
+
+        fixture.execute("anthropic/claude-sonnet-4").await;
+
+        let after = Utc::now();
+        assert_eq!(
+            events_between(&fixture.store, before, after).await,
+            vec![RunEvent {
+                kind: "model.changed".to_string(),
+                run_id: None,
+                guild_id: Some(1000000000000000001),
+                channel_id: Some(1200000000000000001),
+                user_id: Some(1300000000000000001),
+                data: json!({
+                    "previous": "google/gemini-3.8-flash",
+                    "new": "anthropic/claude-sonnet-4",
+                }),
+            }]
         );
     }
 

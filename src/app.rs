@@ -21,7 +21,7 @@ use crate::routing::dispatch::Thresholds;
 use crate::sandbox::ops::discord::DiscordOps;
 use crate::sandbox::ops::full_table;
 use crate::sandbox::runtime::{Sandbox, SandboxLimits};
-use crate::stats::recorder::Stats;
+use crate::stats::recorder::{RunStats, Stats};
 use crate::store::Store;
 use crate::workflows::WorkflowDeps;
 use crate::workflows::chat::ChatWorkflow;
@@ -112,9 +112,10 @@ impl App {
             help_quality_threshold: config.threshold_help_quality,
         };
 
+        let stats = Stats::new(store.events());
+
         Ok(Arc::new(App {
             nuki,
-            stats: Stats::new(store.events()),
             store,
             active_model,
             models,
@@ -129,21 +130,25 @@ impl App {
             admin_log: AdminLog {
                 http: Arc::clone(&http),
                 channel_id: config.admin_log_channel_id,
+                stats: stats.clone(),
             },
+            stats,
             http,
             rest: reqwest::Client::new(),
             config,
         }))
     }
 
-    /// The sandbox of the `run_script` tool, with the Discord operations of `guild_id`.
-    pub fn sandbox_for(&self, guild_id: GuildId) -> Arc<Sandbox> {
+    /// The sandbox of the `run_script` tool, with the Discord operations of `guild_id`, which
+    /// record their events in the run of `stats`.
+    pub fn sandbox_for(&self, guild_id: GuildId, stats: RunStats) -> Arc<Sandbox> {
         let discord_ops = DiscordOps {
             http: Arc::clone(&self.http),
             rest: self.rest.clone(),
             api_base: DISCORD_API_BASE.to_string(),
             bot_token: self.config.discord_token.clone(),
             guild_id: guild_id.get(),
+            stats,
         };
         let table = full_table(
             discord_ops,

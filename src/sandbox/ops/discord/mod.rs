@@ -188,6 +188,7 @@ fn cursor_param(name: &'static str, description: &'static str) -> Param {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use serde_json::json;
     use wiremock::matchers::{body_json, header, method, path, query_param};
     use wiremock::{Mock, MockServer, Request, ResponseTemplate};
@@ -195,6 +196,8 @@ mod tests {
     use super::*;
     use crate::sandbox::runtime::{Sandbox, SandboxLimits, ScriptOutcome};
     use crate::sandbox::test_support::value;
+    use crate::stats::recorder::RunStats;
+    use crate::stats::test_support::{events_between, run_event, test_run, unrecorded_run};
     use crate::test_support::{discord_http, json_response};
 
     const REPLY_WITH_GIF: &str =
@@ -209,22 +212,63 @@ mod tests {
     const BOT_TOKEN: &str = "test-token";
     const GUILD_ID: u64 = 1000000000000000001;
 
+    const ADD_CUSTOM_REACTION: &str = "return await discord.createReaction({ channelId: '1200000000000000001', messageId: '1100000000000000002', emoji: '<:dance:1600000000000000001>' });";
+    const CREATE_EMOJI_FROM_GIF: &str = "return await discord.createGuildEmoji({ name: 'dance', channelId: '1200000000000000001', messageId: '1100000000000000002', attachmentId: '1400000000000000001' });";
+
     async fn run(server: &MockServer, code: &str) -> ScriptOutcome {
-        let table = discord_table(ops_for(server));
+        run_in(server, unrecorded_run().await, code).await
+    }
+
+    /// Runs `code` in the run of `stats`.
+    async fn run_in(server: &MockServer, stats: RunStats, code: &str) -> ScriptOutcome {
+        let table = discord_table(ops_for(server, stats));
         Sandbox::new(Arc::new(table), SandboxLimits::production())
             .run(code)
             .await
             .outcome
     }
 
-    fn ops_for(server: &MockServer) -> DiscordOps {
+    fn ops_for(server: &MockServer, stats: RunStats) -> DiscordOps {
         DiscordOps {
             http: Arc::new(discord_http(server)),
             rest: reqwest::Client::new(),
             api_base: format!("{}/api/v10", server.uri()),
             bot_token: BOT_TOKEN.to_owned(),
             guild_id: GUILD_ID,
+            stats,
         }
+    }
+
+    async fn mount_custom_reaction(server: &MockServer) {
+        Mock::given(method("PUT"))
+            .and(path(
+                "/api/v10/channels/1200000000000000001/messages/1100000000000000002/reactions/dance:1600000000000000001/@me",
+            ))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(server)
+            .await;
+    }
+
+    /// The message with the GIF, the GIF, and the upload of the emoji `dance` from it.
+    async fn mount_emoji_from_gif(server: &MockServer) {
+        mount_reply_with_gif(server).await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/attachments/1200000000000000001/1400000000000000001/dance.gif",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(b"GIF89a", "image/gif"))
+            .mount(server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!("/api/v10/guilds/{GUILD_ID}/emojis")))
+            .and(body_json(json!({
+                "name": "dance",
+                "image": "data:image/gif;base64,R0lGODlh",
+            })))
+            .respond_with(json_response(200, CREATED_EMOJI))
+            .mount(server)
+            .await;
     }
 
     async fn mount_reply_with_gif(server: &MockServer) {
@@ -417,22 +461,33 @@ mod tests {
     #[tokio::test]
     async fn create_reaction_sends_the_encoded_custom_emoji() {
         let server = MockServer::start().await;
-        Mock::given(method("PUT"))
-            .and(path(
-                "/api/v10/channels/1200000000000000001/messages/1100000000000000002/reactions/dance:1600000000000000001/@me",
-            ))
-            .respond_with(ResponseTemplate::new(204))
-            .expect(1)
-            .mount(&server)
-            .await;
+        mount_custom_reaction(&server).await;
 
-        let outcome = run(
-            &server,
-            "return await discord.createReaction({ channelId: '1200000000000000001', messageId: '1100000000000000002', emoji: '<:dance:1600000000000000001>' });",
-        )
-        .await;
+        let outcome = run(&server, ADD_CUSTOM_REACTION).await;
 
         assert_eq!(outcome, value(json!({ "ok": true })));
+    }
+
+    #[tokio::test]
+    async fn create_reaction_records_the_reaction() {
+        let server = MockServer::start().await;
+        mount_custom_reaction(&server).await;
+        let (store, stats) = test_run().await;
+        let before = Utc::now();
+
+        run_in(&server, stats, ADD_CUSTOM_REACTION).await;
+
+        let after = Utc::now();
+        assert_eq!(
+            events_between(&store, before, after).await,
+            vec![run_event(
+                "reaction.added",
+                json!({
+                    "message_id": 1100000000000000002_u64,
+                    "emoji": "<:dance:1600000000000000001>",
+                }),
+            )]
+        );
     }
 
     #[tokio::test]
@@ -459,29 +514,9 @@ mod tests {
     #[tokio::test]
     async fn create_guild_emoji_uploads_the_attachment_with_its_content_type() {
         let server = MockServer::start().await;
-        mount_reply_with_gif(&server).await;
-        Mock::given(method("GET"))
-            .and(path(
-                "/attachments/1200000000000000001/1400000000000000001/dance.gif",
-            ))
-            .respond_with(ResponseTemplate::new(200).set_body_raw(b"GIF89a", "image/gif"))
-            .mount(&server)
-            .await;
-        Mock::given(method("POST"))
-            .and(path(format!("/api/v10/guilds/{GUILD_ID}/emojis")))
-            .and(body_json(json!({
-                "name": "dance",
-                "image": "data:image/gif;base64,R0lGODlh",
-            })))
-            .respond_with(json_response(200, CREATED_EMOJI))
-            .mount(&server)
-            .await;
+        mount_emoji_from_gif(&server).await;
 
-        let outcome = run(
-            &server,
-            "return await discord.createGuildEmoji({ name: 'dance', channelId: '1200000000000000001', messageId: '1100000000000000002', attachmentId: '1400000000000000001' });",
-        )
-        .await;
+        let outcome = run(&server, CREATE_EMOJI_FROM_GIF).await;
 
         assert_eq!(
             outcome,
@@ -490,6 +525,25 @@ mod tests {
                 "name": "dance",
                 "text": "<a:dance:1600000000000000001>",
             }))
+        );
+    }
+
+    #[tokio::test]
+    async fn create_guild_emoji_records_the_emoji() {
+        let server = MockServer::start().await;
+        mount_emoji_from_gif(&server).await;
+        let (store, stats) = test_run().await;
+        let before = Utc::now();
+
+        run_in(&server, stats, CREATE_EMOJI_FROM_GIF).await;
+
+        let after = Utc::now();
+        assert_eq!(
+            events_between(&store, before, after).await,
+            vec![run_event(
+                "emoji.created",
+                json!({ "emoji_id": 1600000000000000001_u64, "name": "dance" }),
+            )]
         );
     }
 

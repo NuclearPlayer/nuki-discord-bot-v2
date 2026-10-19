@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 use crate::app::App;
 use crate::discord::attachments::ResolvedMessage;
 use crate::discord::context::jev_lines;
+use crate::discord::events::{message_received, unit_routed};
 use crate::discord::handler::facts_of;
 use crate::discord::history::{fetch_channel, fetch_unit_context};
 use crate::discord::intake_thread::{continue_intake, intake_workflow, start_intake};
@@ -19,9 +20,10 @@ use crate::discord::turn_context::turn_context;
 use crate::routing::category::Category;
 use crate::routing::dispatch::{Decision, decide_with_cooldown, describe};
 use crate::routing::trigger::{ClassifiedTrigger, MessageFacts, Trigger, trigger_of_unit};
+use crate::stats::event::Event;
 use crate::stats::recorder::{RunStats, run_id_of_unit};
 use crate::store::intakes::IntakeKind;
-use crate::workflows::Workflow;
+use crate::workflows::{Workflow, timed};
 
 /// The workflow name in the admin log for an error before the bot picks a workflow.
 const ROUTING: &str = "routing";
@@ -35,14 +37,28 @@ pub fn spawn_unit_reader(app: Arc<App>, mut units: mpsc::UnboundedReceiver<Vec<M
     });
 }
 
-/// Runs the pipeline for one unit. An error goes to the admin log, and Nuki sends nothing.
+/// Runs the pipeline for one unit, as one run. An error goes to the admin log, and Nuki sends
+/// nothing.
 pub async fn process_unit(app: Arc<App>, unit: Vec<Message>) {
-    let channel_id = last_message(&unit).channel_id;
-    if let Err(failure) = handle_unit(&app, &unit).await {
+    let stats = unit_run(&app, &unit);
+    if let Err(failure) = handle_unit(&app, &unit, &stats).await {
         app.admin_log
-            .report_error(failure.workflow, channel_id.get(), &failure.error)
+            .report_error(stats.scope(None), failure.workflow, &failure.error)
             .await;
     }
+}
+
+/// The recorder of the run of the unit, in the server and the channel of the unit.
+fn unit_run(app: &App, unit: &[Message]) -> RunStats {
+    let last = last_message(unit);
+    let guild_id = last
+        .guild_id
+        .expect("the handler drops the messages outside a server");
+    app.stats.run(
+        run_id_of_unit(last.id.get()),
+        guild_id.get(),
+        last.channel_id.get(),
+    )
 }
 
 /// The debouncer sends no empty unit.
@@ -74,7 +90,7 @@ impl<T, E: Into<anyhow::Error>> InWorkflow<T> for Result<T, E> {
     }
 }
 
-async fn handle_unit(app: &App, unit: &[Message]) -> Result<(), Failure> {
+async fn handle_unit(app: &App, unit: &[Message], stats: &RunStats) -> Result<(), Failure> {
     let channel_id = last_message(unit).channel_id;
     let intake = app
         .store
@@ -92,16 +108,35 @@ async fn handle_unit(app: &App, unit: &[Message]) -> Result<(), Failure> {
     let Some(trigger) = trigger_of_unit(&facts) else {
         return Ok(());
     };
+    record_received(stats, unit, &facts, trigger).await;
     match trigger {
         Trigger::IntakeThread => {
             let intake = intake.expect("only the thread of an open intake has this trigger");
             let workflow = intake_workflow(intake.kind);
-            continue_intake(app, unit, intake)
+            continue_intake(app, unit, intake, stats)
                 .await
                 .in_workflow(workflow)
         }
-        Trigger::Direct => route(app, unit, ClassifiedTrigger::Direct).await,
-        Trigger::Unsolicited => route(app, unit, ClassifiedTrigger::Unsolicited).await,
+        Trigger::Direct => route(app, unit, ClassifiedTrigger::Direct, stats).await,
+        Trigger::Unsolicited => route(app, unit, ClassifiedTrigger::Unsolicited, stats).await,
+    }
+}
+
+/// Records a `message.received` event for each message of the unit, with the trigger of the unit.
+async fn record_received(
+    stats: &RunStats,
+    unit: &[Message],
+    facts: &[MessageFacts],
+    trigger: Trigger,
+) {
+    for (message, facts) in unit.iter().zip(facts) {
+        let received = message_received(message, facts, trigger);
+        stats
+            .record(
+                Some(message.author.id.get()),
+                Event::MessageReceived(received),
+            )
+            .await;
     }
 }
 
@@ -132,37 +167,42 @@ struct Routed {
     category: Category,
     channel: GuildChannel,
     history: Vec<ResolvedMessage>,
-    stats: RunStats,
 }
 
-async fn route(app: &App, unit: &[Message], trigger: ClassifiedTrigger) -> Result<(), Failure> {
-    let Some(routed) = classify(app, unit, trigger).await.in_workflow(ROUTING)? else {
+async fn route(
+    app: &App,
+    unit: &[Message],
+    trigger: ClassifiedTrigger,
+    stats: &RunStats,
+) -> Result<(), Failure> {
+    let Some(routed) = classify(app, unit, trigger, stats)
+        .await
+        .in_workflow(ROUTING)?
+    else {
         return Ok(());
     };
     let workflow = routed.category.name();
-    run_category(app, unit, routed).await.in_workflow(workflow)
+    run_category(app, unit, routed, stats)
+        .await
+        .in_workflow(workflow)
 }
 
 /// Classifies the unit with its history, decides what to run with the chat cooldown of the
-/// channel, and logs the decision. A unit that runs goes back as `Routed`.
+/// channel, and logs and records the decision. A unit that runs goes back as `Routed`.
 async fn classify(
     app: &App,
     unit: &[Message],
     trigger: ClassifiedTrigger,
+    stats: &RunStats,
 ) -> anyhow::Result<Option<Routed>> {
     let last = last_message(unit);
     let channel = fetch_channel(app, last.channel_id).await?;
-    let stats = app.stats.run(
-        run_id_of_unit(last.id.get()),
-        channel.guild_id.get(),
-        channel.id.get(),
-    );
     let history = fetch_unit_context(app, channel.guild_id, unit).await?;
     let lines = jev_lines(&history);
     let (history_lines, unit_lines) = lines.split_at(lines.len() - unit.len());
     let classification = app
         .classifier
-        .classify(trigger, history_lines, unit_lines, &stats)
+        .classify(trigger, history_lines, unit_lines, stats)
         .await?;
     let decision = decide_with_cooldown(
         trigger,
@@ -177,33 +217,33 @@ async fn classify(
         "{}",
         describe(&classification, &decision)
     );
+    let routed = unit_routed(unit.len(), &classification, &decision);
+    stats
+        .record(Some(last.author.id.get()), Event::UnitRouted(routed))
+        .await;
     match decision {
         Decision::Run(category) => Ok(Some(Routed {
             trigger,
             category,
             channel,
             history,
-            stats,
         })),
         Decision::Skip(_) => Ok(None),
     }
 }
 
-async fn run_category(app: &App, unit: &[Message], routed: Routed) -> anyhow::Result<()> {
+async fn run_category(
+    app: &App,
+    unit: &[Message],
+    routed: Routed,
+    stats: &RunStats,
+) -> anyhow::Result<()> {
     let trigger = Trigger::from(routed.trigger);
     match routed.category {
-        Category::HelpRequest => run_workflow(app, &app.help, unit, routed).await,
-        Category::Chat => run_workflow(app, &app.chat, unit, routed).await,
+        Category::HelpRequest => run_workflow(app, &app.help, unit, routed, stats).await,
+        Category::Chat => run_workflow(app, &app.chat, unit, routed, stats).await,
         Category::BugReport => {
-            start_intake(
-                app,
-                unit,
-                &routed.channel,
-                trigger,
-                IntakeKind::Bug,
-                routed.stats,
-            )
-            .await
+            start_intake(app, unit, &routed.channel, trigger, IntakeKind::Bug, stats).await
         }
         Category::FeatureRequest => {
             start_intake(
@@ -212,7 +252,7 @@ async fn run_category(app: &App, unit: &[Message], routed: Routed) -> anyhow::Re
                 &routed.channel,
                 trigger,
                 IntakeKind::Feature,
-                routed.stats,
+                stats,
             )
             .await
         }
@@ -225,6 +265,7 @@ async fn run_workflow(
     workflow: &impl Workflow,
     unit: &[Message],
     routed: Routed,
+    stats: &RunStats,
 ) -> anyhow::Result<()> {
     let _typing = routed.channel.id.start_typing(&app.http);
     let trigger = Trigger::from(routed.trigger);
@@ -235,15 +276,15 @@ async fn run_workflow(
         &routed.channel.name,
         routed.history,
         unit.len(),
-        routed.stats,
+        stats.clone(),
     )
     .await?;
-    let outcome = workflow.run(&ctx).await?;
+    let outcome = timed(stats, routed.category.name(), workflow.run(&ctx)).await?;
     let applied = AppliedTurn {
         channel_id: routed.channel.id,
         reply_to: Some(last_message(unit).id),
     };
-    apply_outcome(app, &applied, outcome).await
+    apply_outcome(app, stats, &applied, outcome).await
 }
 
 #[cfg(test)]

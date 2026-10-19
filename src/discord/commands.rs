@@ -160,14 +160,13 @@ fn changed_message(previous: &str, new: &str) -> String {
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
-    use serenity::http::HttpBuilder;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
     use crate::store::Store;
     use crate::store::test_support::selection;
-    use crate::test_support::json_response;
+    use crate::test_support::{discord_http, json_response};
 
     const INTERACTION: &str =
         include_str!("../../tests/fixtures/discord/command_change_model.json");
@@ -197,10 +196,7 @@ mod tests {
                 .respond_with(ResponseTemplate::new(204))
                 .mount(&discord)
                 .await;
-            let http = HttpBuilder::new("test-token")
-                .proxy(discord.uri())
-                .ratelimiter_disabled(true)
-                .build();
+            let http = discord_http(&discord);
             let settings = Store::open_in_memory().await.unwrap().settings();
             let active = ActiveModel::load(settings, "google/gemini-3.8-flash")
                 .await

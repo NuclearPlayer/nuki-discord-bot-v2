@@ -6,7 +6,7 @@ use serenity::client::{Context, EventHandler};
 use serenity::model::application::{Command, Interaction};
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
-use serenity::model::id::UserId;
+use serenity::model::id::{RoleId, UserId};
 
 use crate::app::App;
 use crate::discord::commands::{self, CHANGE_MODEL_COMMAND, change_model_command};
@@ -14,14 +14,23 @@ use crate::discord::history::is_system;
 use crate::routing::debounce::Debouncer;
 use crate::routing::trigger::{MessageFacts, trigger_of};
 
-pub fn facts_of(message: &Message, nuki_user_id: u64, in_open_intake_thread: bool) -> MessageFacts {
+/// `nuki_role_id` is the managed role of Nuki in the server of the message. A mention of that
+/// role is a mention of Nuki.
+pub fn facts_of(
+    message: &Message,
+    nuki_user_id: u64,
+    nuki_role_id: Option<RoleId>,
+    in_open_intake_thread: bool,
+) -> MessageFacts {
     let nuki = UserId::new(nuki_user_id);
+    let mentions_nuki_role =
+        nuki_role_id.is_some_and(|role_id| message.mention_roles.contains(&role_id));
     MessageFacts {
         author_is_bot: message.author.bot,
         is_system: is_system(message),
         is_dm: message.guild_id.is_none(),
         in_open_intake_thread,
-        mentions_nuki: message.mentions_user_id(nuki),
+        mentions_nuki: message.mentions_user_id(nuki) || mentions_nuki_role,
         replies_to_nuki: message
             .referenced_message
             .as_deref()
@@ -51,9 +60,10 @@ impl EventHandler for Handler {
     }
 
     /// Debounces each message that has a trigger. The pipeline looks up the intake of the
-    /// channel, so this filter does not need it: every message that it drops has no trigger.
+    /// channel and the role of Nuki, so this filter does not need them: every message that it
+    /// drops has no trigger.
     async fn message(&self, _ctx: Context, message: Message) {
-        let facts = facts_of(&message, self.app.nuki.user_id, false);
+        let facts = facts_of(&message, self.app.nuki.user_id, None, false);
         if trigger_of(&facts).is_none() {
             return;
         }
@@ -83,6 +93,8 @@ mod tests {
     use super::*;
 
     const NUKI_USER_ID: u64 = 1700000000000000001;
+    const NUKI_ROLE_ID: RoleId = RoleId::new(1900000000000000001);
+    const OTHER_ROLE_ID: RoleId = RoleId::new(1900000000000000002);
 
     fn message(fixture: &str) -> Message {
         serde_json::from_str(fixture).unwrap()
@@ -95,7 +107,7 @@ mod tests {
         ));
 
         assert_eq!(
-            facts_of(&regular, NUKI_USER_ID, false),
+            facts_of(&regular, NUKI_USER_ID, None, false),
             MessageFacts {
                 author_is_bot: false,
                 is_system: false,
@@ -114,7 +126,7 @@ mod tests {
         ));
 
         assert_eq!(
-            facts_of(&reply, NUKI_USER_ID, true),
+            facts_of(&reply, NUKI_USER_ID, None, true),
             MessageFacts {
                 author_is_bot: false,
                 is_system: false,
@@ -133,7 +145,7 @@ mod tests {
         ));
 
         assert_eq!(
-            facts_of(&mention, NUKI_USER_ID, false),
+            facts_of(&mention, NUKI_USER_ID, Some(NUKI_ROLE_ID), false),
             MessageFacts {
                 author_is_bot: false,
                 is_system: false,
@@ -146,13 +158,51 @@ mod tests {
     }
 
     #[test]
+    fn facts_of_a_mention_of_the_role_of_nuki() {
+        let mention = message(include_str!(
+            "../../tests/fixtures/discord/handler_role_mention.json"
+        ));
+
+        assert_eq!(
+            facts_of(&mention, NUKI_USER_ID, Some(NUKI_ROLE_ID), false),
+            MessageFacts {
+                author_is_bot: false,
+                is_system: false,
+                is_dm: false,
+                in_open_intake_thread: false,
+                mentions_nuki: true,
+                replies_to_nuki: false,
+            }
+        );
+    }
+
+    #[test]
+    fn facts_of_a_mention_of_another_role() {
+        let mention = message(include_str!(
+            "../../tests/fixtures/discord/handler_role_mention.json"
+        ));
+
+        assert_eq!(
+            facts_of(&mention, NUKI_USER_ID, Some(OTHER_ROLE_ID), false),
+            MessageFacts {
+                author_is_bot: false,
+                is_system: false,
+                is_dm: false,
+                in_open_intake_thread: false,
+                mentions_nuki: false,
+                replies_to_nuki: false,
+            }
+        );
+    }
+
+    #[test]
     fn facts_of_a_join_message_are_system() {
         let join = message(include_str!(
             "../../tests/fixtures/discord/handler_join_message.json"
         ));
 
         assert_eq!(
-            facts_of(&join, NUKI_USER_ID, false),
+            facts_of(&join, NUKI_USER_ID, None, false),
             MessageFacts {
                 author_is_bot: false,
                 is_system: true,
@@ -171,7 +221,7 @@ mod tests {
         ));
 
         assert_eq!(
-            facts_of(&bot, NUKI_USER_ID, false),
+            facts_of(&bot, NUKI_USER_ID, None, false),
             MessageFacts {
                 author_is_bot: true,
                 is_system: false,
@@ -188,7 +238,7 @@ mod tests {
         let dm = message(include_str!("../../tests/fixtures/discord/handler_dm.json"));
 
         assert_eq!(
-            facts_of(&dm, NUKI_USER_ID, false),
+            facts_of(&dm, NUKI_USER_ID, None, false),
             MessageFacts {
                 author_is_bot: false,
                 is_system: false,

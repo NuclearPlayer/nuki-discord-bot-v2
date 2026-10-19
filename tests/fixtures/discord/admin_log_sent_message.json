@@ -1,0 +1,16 @@
+{
+  "id": "1100000000000000018",
+  "channel_id": "1200000000000000009",
+  "author": { "id": "1700000000000000001", "username": "nuki-bot", "bot": true },
+  "content": "⚠️ Help failed in <#333>: see https://github.com/nukeop/nuclear",
+  "timestamp": "2026-10-19T12:41:00.000000+00:00",
+  "tts": false,
+  "mention_everyone": false,
+  "mentions": [],
+  "mention_roles": [],
+  "attachments": [],
+  "embeds": [],
+  "pinned": false,
+  "type": 0,
+  "flags": 4
+}

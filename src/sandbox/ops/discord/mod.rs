@@ -189,14 +189,13 @@ fn cursor_param(name: &'static str, description: &'static str) -> Param {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use serenity::http::HttpBuilder;
     use wiremock::matchers::{body_json, header, method, path, query_param};
     use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
     use super::*;
     use crate::sandbox::runtime::{Sandbox, SandboxLimits, ScriptOutcome};
     use crate::sandbox::test_support::value;
-    use crate::test_support::json_response;
+    use crate::test_support::{discord_http, json_response};
 
     const REPLY_WITH_GIF: &str =
         include_str!("../../../../tests/fixtures/discord/ops_reply_with_gif.json");
@@ -218,12 +217,8 @@ mod tests {
     }
 
     fn ops_for(server: &MockServer) -> DiscordOps {
-        let http = HttpBuilder::new(BOT_TOKEN)
-            .proxy(server.uri())
-            .ratelimiter_disabled(true)
-            .build();
         DiscordOps {
-            http: Arc::new(http),
+            http: Arc::new(discord_http(server)),
             rest: reqwest::Client::new(),
             api_base: format!("{}/api/v10", server.uri()),
             bot_token: BOT_TOKEN.to_owned(),

@@ -24,17 +24,14 @@ struct IntakeThread {
     reply_to: Option<MessageId>,
 }
 
-/// The category that starts an intake of `kind`.
-pub(super) fn intake_category(kind: IntakeKind) -> Category {
-    match kind {
+/// The workflow name of an intake of `kind` in the admin log: the name of the category that
+/// starts it.
+pub(super) fn intake_workflow(kind: IntakeKind) -> &'static str {
+    let category = match kind {
         IntakeKind::Bug => Category::BugReport,
         IntakeKind::Feature => Category::FeatureRequest,
-    }
-}
-
-/// The workflow name of an intake of `kind` in the admin log.
-pub(super) fn intake_workflow(kind: IntakeKind) -> &'static str {
-    intake_category(kind).name()
+    };
+    category.name()
 }
 
 /// Runs a turn of an open intake. A message of the reporter keeps the intake active.
@@ -54,8 +51,6 @@ pub(super) async fn continue_intake(
     let _typing = last.channel_id.start_typing(&app.http);
     let outcome = app.intake.run_turn(&ctx, &intake).await?;
     let applied = AppliedTurn {
-        trigger: Trigger::IntakeThread,
-        category: None,
         channel_id: last.channel_id,
         reply_to: Some(last.id),
     };
@@ -91,8 +86,6 @@ async fn complete_or_close(app: &App, intake: &Intake) -> anyhow::Result<()> {
     };
     let report = app.intake.complete_inactive(&ctx, intake).await?;
     let applied = AppliedTurn {
-        trigger: Trigger::IntakeThread,
-        category: None,
         channel_id: ChannelId::new(intake.thread_id),
         reply_to: None,
     };
@@ -167,8 +160,6 @@ pub(super) async fn start_intake(
     let ctx = turn_context(app, guild_id, trigger, &thread.name, history, unit.len()).await?;
     let outcome = app.intake.run_turn(&ctx, &intake).await?;
     let applied = AppliedTurn {
-        trigger,
-        category: Some(intake_category(kind)),
         channel_id: thread.id,
         reply_to: thread.reply_to,
     };

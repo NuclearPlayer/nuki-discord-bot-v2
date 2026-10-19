@@ -1,0 +1,33 @@
+[
+  {
+    "id": "1900000000000000002",
+    "name": "supporter",
+    "description": null,
+    "permissions": "1071698660929",
+    "position": 2,
+    "color": 15844367,
+    "colors": { "primary_color": 15844367, "secondary_color": null, "tertiary_color": null },
+    "hoist": true,
+    "managed": false,
+    "mentionable": true,
+    "icon": null,
+    "unicode_emoji": null,
+    "flags": 0
+  },
+  {
+    "id": "1900000000000000001",
+    "name": "Nuki",
+    "description": null,
+    "permissions": "277025508352",
+    "position": 1,
+    "color": 0,
+    "colors": { "primary_color": 0, "secondary_color": null, "tertiary_color": null },
+    "hoist": false,
+    "managed": true,
+    "mentionable": false,
+    "icon": null,
+    "unicode_emoji": null,
+    "flags": 0,
+    "tags": { "bot_id": "1700000000000000001" }
+  }
+]

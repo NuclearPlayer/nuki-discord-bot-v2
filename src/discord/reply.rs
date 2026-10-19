@@ -1,15 +1,11 @@
 //! Does the Discord actions of an `Outcome`.
 
-use std::time::Instant;
-
 use chrono::Utc;
 use serenity::builder::CreateMessage;
 use serenity::model::id::{ChannelId, MessageId};
 
 use crate::admin::reports::report_embed;
 use crate::app::App;
-use crate::routing::category::Category;
-use crate::routing::trigger::Trigger;
 use crate::store::intakes::Intake;
 use crate::workflows::intake::report::Report;
 use crate::workflows::{Outcome, Reply};
@@ -22,8 +18,6 @@ const MESSAGE_CHARS: usize = 2000;
 
 /// Where and how the outcome of one turn goes to Discord.
 pub struct AppliedTurn {
-    pub trigger: Trigger,
-    pub category: Option<Category>,
     /// The channel where Nuki sends her message.
     pub channel_id: ChannelId,
     /// `None` only for the first turn of an intake in a new thread: the message of the user is
@@ -48,11 +42,7 @@ pub async fn apply_outcome(
 ) -> anyhow::Result<()> {
     match outcome {
         Outcome::Nothing => Ok(()),
-        Outcome::Reply(reply) => {
-            send_reply(app, applied, reply).await?;
-            start_cooldown_after_unsolicited_chat(app, applied);
-            Ok(())
-        }
+        Outcome::Reply(reply) => send_reply(app, applied, reply).await,
         Outcome::Intake { .. } => {
             anyhow::bail!("a turn outside an intake returned an intake outcome")
         }
@@ -155,13 +145,6 @@ fn line_pieces(line: &str) -> Vec<String> {
 /// Whether the piece fits after `part` on a new line.
 fn fits(part: &str, piece: &str) -> bool {
     part.chars().count() + 1 + piece.chars().count() <= MESSAGE_CHARS
-}
-
-fn start_cooldown_after_unsolicited_chat(app: &App, applied: &AppliedTurn) {
-    if applied.trigger == Trigger::Unsolicited && applied.category == Some(Category::Chat) {
-        app.cooldowns
-            .start(applied.channel_id.get(), Instant::now());
-    }
 }
 
 /// Sends the report to the admin log channel, then closes the intake.

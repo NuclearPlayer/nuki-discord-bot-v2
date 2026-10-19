@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
+use serenity::builder::CreateMessage;
 use serenity::constants::MESSAGE_CODE_LIMIT;
 use serenity::http::Http;
+use serenity::model::channel::MessageFlags;
 use serenity::model::id::ChannelId;
 
 /// Sends the errors of failed workflows to the admin log channel.
@@ -23,9 +25,11 @@ impl AdminLog {
             "workflow failed: {error:#}"
         );
 
-        let message = error_message(workflow, conversation_channel_id, error);
+        let message = CreateMessage::new()
+            .content(error_message(workflow, conversation_channel_id, error))
+            .flags(MessageFlags::SUPPRESS_EMBEDS);
         let sent = ChannelId::new(self.channel_id)
-            .say(&self.http, message)
+            .send_message(&self.http, message)
             .await;
         if let Err(send_error) = sent {
             tracing::error!(
@@ -46,8 +50,55 @@ fn error_message(workflow: &str, conversation_channel_id: u64, error: &anyhow::E
 #[cfg(test)]
 mod tests {
     use anyhow::{Context, anyhow};
+    use serde_json::{Value, json};
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer};
 
     use super::*;
+    use crate::test_support::{discord_http, json_response};
+
+    const ADMIN_CHANNEL_ID: u64 = 1200000000000000009;
+    const SENT_MESSAGE: &str =
+        include_str!("../../tests/fixtures/discord/admin_log_sent_message.json");
+
+    #[tokio::test]
+    async fn report_error_sends_the_error_message_without_link_embeds() {
+        let discord = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/api/v10/channels/{ADMIN_CHANNEL_ID}/messages"
+            )))
+            .respond_with(json_response(200, SENT_MESSAGE))
+            .mount(&discord)
+            .await;
+        let admin_log = AdminLog {
+            http: Arc::new(discord_http(&discord)),
+            channel_id: ADMIN_CHANNEL_ID,
+        };
+
+        admin_log
+            .report_error(
+                "Help",
+                333,
+                &anyhow!("see https://github.com/nukeop/nuclear"),
+            )
+            .await;
+
+        let requests = discord.received_requests().await.unwrap();
+        let body: Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(
+            body,
+            json!({
+                "content": "⚠️ Help failed in <#333>: see https://github.com/nukeop/nuclear",
+                "flags": MessageFlags::SUPPRESS_EMBEDS.bits(),
+                "tts": false,
+                "embeds": [],
+                "sticker_ids": [],
+                "attachments": [],
+                "enforce_nonce": false
+            })
+        );
+    }
 
     #[test]
     fn error_message_contains_the_workflow_the_channel_and_the_error_chain() {

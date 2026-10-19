@@ -1,7 +1,9 @@
 use std::fmt;
+use std::time::Instant;
 
 use super::category::Category;
 use super::classify::Classification;
+use super::cooldown::Cooldowns;
 use super::trigger::ClassifiedTrigger;
 use crate::config::Config;
 
@@ -67,6 +69,25 @@ pub fn decide(
             decide_unsolicited(category, probability, thresholds, chat_cooldown_active)
         }
     }
+}
+
+/// Decides with the chat cooldown of the channel `channel_id`. An unsolicited chat that runs
+/// starts the cooldown at the decision, not at the reply, so a unit that is decided while the
+/// reply is written sees the cooldown.
+pub fn decide_with_cooldown(
+    trigger: ClassifiedTrigger,
+    classification: &Classification,
+    thresholds: &Thresholds,
+    cooldowns: &Cooldowns,
+    channel_id: u64,
+    now: Instant,
+) -> Decision {
+    let cooldown_active = cooldowns.is_active(channel_id, now);
+    let decision = decide(trigger, classification, thresholds, cooldown_active);
+    if trigger == ClassifiedTrigger::Unsolicited && decision == Decision::Run(Category::Chat) {
+        cooldowns.start(channel_id, now);
+    }
+    decision
 }
 
 fn decide_unsolicited(
@@ -136,6 +157,8 @@ impl fmt::Display for SkipReason {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use indexmap::indexmap;
 
     use super::*;
@@ -146,6 +169,8 @@ mod tests {
         feature: 0.6,
         chat: 0.5,
     };
+    const COOLDOWN: Duration = Duration::from_secs(15 * 60);
+    const CHANNEL_ID: u64 = 1200000000000000001;
 
     fn classification_with_top(category: Category, probability: f64) -> Classification {
         let other = Category::ALL
@@ -263,6 +288,50 @@ mod tests {
         );
 
         assert_eq!(decision, Decision::Run(Category::HelpRequest));
+    }
+
+    #[test]
+    fn an_unsolicited_chat_decision_starts_the_cooldown() {
+        let cooldowns = Cooldowns::new(COOLDOWN);
+        let classification = classification_with_top(Category::Chat, 0.9);
+        let now = Instant::now();
+
+        let decisions = [now, now + Duration::from_secs(1)].map(|at| {
+            decide_with_cooldown(
+                ClassifiedTrigger::Unsolicited,
+                &classification,
+                &THRESHOLDS,
+                &cooldowns,
+                CHANNEL_ID,
+                at,
+            )
+        });
+
+        assert_eq!(
+            decisions,
+            [
+                Decision::Run(Category::Chat),
+                Decision::Skip(SkipReason::Cooldown)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_direct_chat_decision_does_not_start_the_cooldown() {
+        let cooldowns = Cooldowns::new(COOLDOWN);
+        let classification = classification_with_top(Category::Chat, 0.9);
+        let now = Instant::now();
+
+        decide_with_cooldown(
+            ClassifiedTrigger::Direct,
+            &classification,
+            &THRESHOLDS,
+            &cooldowns,
+            CHANNEL_ID,
+            now,
+        );
+
+        assert!(!cooldowns.is_active(CHANNEL_ID, now));
     }
 
     #[test]

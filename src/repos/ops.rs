@@ -1,119 +1,12 @@
 use std::ops::RangeInclusive;
 
-use serde::{Deserialize, Serialize};
-
 use super::catalog::RepoId;
 use super::git::Git;
 use super::manager::{RepoError, RepoManager};
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RepoSummary {
-    pub repo: RepoId,
-    pub description: Option<String>,
-    pub cloned: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GrepParams {
-    pub repo: RepoId,
-    pub pattern: String,
-    pub path: Option<String>,
-    pub r#ref: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GrepMatch {
-    pub path: String,
-    pub line: u64,
-    pub text: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReadFileParams {
-    pub repo: RepoId,
-    pub path: String,
-    pub r#ref: Option<String>,
-    pub start_line: Option<usize>,
-    pub end_line: Option<usize>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileContent {
-    pub path: String,
-    pub r#ref: String,
-    pub content: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ListDirParams {
-    pub repo: RepoId,
-    pub path: Option<String>,
-    pub r#ref: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DirEntry {
-    pub name: String,
-    pub kind: EntryKind,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum EntryKind {
-    File,
-    Dir,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GitLogParams {
-    pub repo: RepoId,
-    pub range: Option<String>,
-    pub path: Option<String>,
-    pub grep: Option<String>,
-    #[serde(default = "default_log_limit")]
-    pub limit: usize,
-}
-
-fn default_log_limit() -> usize {
-    30
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Commit {
-    pub hash: String,
-    pub author: String,
-    pub date: String,
-    pub subject: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GitShowParams {
-    pub repo: RepoId,
-    pub rev: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShownRevision {
-    pub rev: String,
-    pub text: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ListTagsParams {
-    pub repo: RepoId,
-}
+use super::types::{
+    Commit, DirEntry, EntryKind, FileContent, GitLogParams, GitShowParams, GrepMatch, GrepParams,
+    ListDirParams, ListTagsParams, ReadFileParams, RepoSummary, ShownRevision,
+};
 
 const DEFAULT_REF: &str = "HEAD";
 
@@ -150,10 +43,9 @@ pub async fn grep(manager: &RepoManager, params: GrepParams) -> Result<Vec<GrepM
     .collect();
     let stdout = run_in(manager, &params.repo, &args, &[1]).await?;
     let prefix = format!("{reference}:");
-    Ok(stdout
-        .lines()
-        .filter_map(|line| line.strip_prefix(&prefix).and_then(parse_grep_line))
-        .collect())
+    parse_all(stdout.lines(), |line| {
+        line.strip_prefix(&prefix).and_then(parse_grep_line)
+    })
 }
 
 pub async fn read_file(
@@ -192,10 +84,7 @@ pub async fn list_dir(
         .chain(directory.as_deref())
         .collect();
     let stdout = run_in(manager, &params.repo, &args, &[]).await?;
-    Ok(stdout
-        .split_terminator('\0')
-        .filter_map(parse_tree_entry)
-        .collect())
+    parse_all(stdout.split_terminator('\0'), parse_tree_entry)
 }
 
 pub async fn git_log(
@@ -212,7 +101,7 @@ pub async fn git_log(
         .chain(path_args(params.path.as_deref()))
         .collect();
     let stdout = run_in(manager, &params.repo, &args, &[]).await?;
-    Ok(stdout.lines().filter_map(parse_commit_line).collect())
+    parse_all(stdout.lines(), parse_commit_line)
 }
 
 pub async fn git_show(
@@ -258,6 +147,17 @@ fn ref_or_head(reference: Option<String>) -> String {
 
 fn path_args(path: Option<&str>) -> impl Iterator<Item = &str> {
     path.into_iter().flat_map(|path| ["--", path])
+}
+
+/// Parses each item of the git output. The formats are ours, so an item that does
+/// not parse is a bug and fails the whole operation.
+fn parse_all<'a, T>(
+    items: impl Iterator<Item = &'a str>,
+    parse: impl Fn(&'a str) -> Option<T>,
+) -> Result<Vec<T>, RepoError> {
+    items
+        .map(|item| parse(item).ok_or_else(|| RepoError::UnparsableOutput(item.to_string())))
+        .collect()
 }
 
 /// Reads `path\0line\0text`, the output of `git grep -z -n` without the ref prefix.
@@ -308,181 +208,14 @@ fn parse_commit_line(line: &str) -> Option<Commit> {
 }
 
 #[cfg(test)]
-pub(crate) mod test_support {
-    use std::fs;
-    use std::path::Path;
-    use std::process::Command;
-
-    use tempfile::TempDir;
-
-    use crate::repos::catalog::{CatalogEntry, RepoCatalog, RepoId};
-    use crate::repos::manager::RepoManager;
-
-    pub(crate) fn test_repo_id() -> RepoId {
-        RepoId {
-            owner: "test".to_string(),
-            name: "origin".to_string(),
-        }
-    }
-
-    fn git(dir: &Path, args: &[&str]) -> String {
-        output_of(command(dir, args))
-    }
-
-    fn git_at(dir: &Path, args: &[&str], date: &str) -> String {
-        let mut command = command(dir, args);
-        command
-            .env("GIT_AUTHOR_NAME", "Test Author")
-            .env("GIT_AUTHOR_EMAIL", "author@example.com")
-            .env("GIT_AUTHOR_DATE", date)
-            .env("GIT_COMMITTER_NAME", "Test Committer")
-            .env("GIT_COMMITTER_EMAIL", "committer@example.com")
-            .env("GIT_COMMITTER_DATE", date);
-        output_of(command)
-    }
-
-    fn command(dir: &Path, args: &[&str]) -> Command {
-        let mut command = Command::new("git");
-        command
-            .current_dir(dir)
-            .args(args)
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_NOSYSTEM", "1");
-        command
-    }
-
-    fn output_of(mut command: Command) -> String {
-        let output = command.output().unwrap();
-        assert!(
-            output.status.success(),
-            "{command:?} failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8(output.stdout).unwrap().trim().to_string()
-    }
-
-    pub(crate) fn rev_parse(dir: &Path, rev: &str) -> String {
-        git(dir, &["rev-parse", rev])
-    }
-
-    pub(crate) struct Origin {
-        dir: TempDir,
-    }
-
-    impl Origin {
-        pub(crate) fn empty() -> Origin {
-            let origin = Origin {
-                dir: TempDir::new().unwrap(),
-            };
-            git(origin.path(), &["init", "-b", "main"]);
-            origin
-        }
-
-        pub(crate) fn create() -> Origin {
-            let origin = Origin::empty();
-            origin.commit(
-                &[
-                    ("README.md", "# Player\n"),
-                    (
-                        "src/player.js",
-                        "export function play() {\n  return 'playing';\n}\n\nexport function pause() {\n  return 'paused';\n}\n",
-                    ),
-                ],
-                "Add the player",
-                "2026-01-01T10:00:00Z",
-            );
-            origin.tag("v1.0.0");
-            origin.commit(
-                &[("docs/guide.md", "# Guide\n\nPress play.\n")],
-                "Add the guide",
-                "2026-01-02T10:00:00Z",
-            );
-            origin.commit(
-                &[
-                    (
-                        "src/player.js",
-                        "export function play() {\n  return 'playing';\n}\n\nexport function pause() {\n  return 'paused';\n}\n\nexport function stop() {\n  return 'stopped';\n}\n",
-                    ),
-                    ("src/ui/button.js", "export const button = 'play';\n"),
-                ],
-                "Add stop to the player",
-                "2026-01-03T10:00:00Z",
-            );
-            origin.tag("v1.1.0");
-            origin
-        }
-
-        pub(crate) fn path(&self) -> &Path {
-            self.dir.path()
-        }
-
-        pub(crate) fn catalog_entry(&self) -> CatalogEntry {
-            CatalogEntry {
-                id: test_repo_id(),
-                description: Some("The test repository".to_string()),
-                clone_url: self.path().to_str().unwrap().to_string(),
-            }
-        }
-
-        pub(crate) fn commit(&self, files: &[(&str, &str)], message: &str, date: &str) {
-            for (path, content) in files {
-                let file = self.path().join(path);
-                fs::create_dir_all(file.parent().unwrap()).unwrap();
-                fs::write(file, content).unwrap();
-            }
-            git(self.path(), &["add", "--all"]);
-            git_at(self.path(), &["commit", "--message", message], date);
-        }
-
-        fn tag(&self, name: &str) {
-            git(self.path(), &["tag", name]);
-        }
-
-        pub(crate) fn rev_parse(&self, rev: &str) -> String {
-            rev_parse(self.path(), rev)
-        }
-    }
-
-    pub(crate) struct TestRepos {
-        pub(crate) origin: Origin,
-        pub(crate) root: TempDir,
-        pub(crate) manager: RepoManager,
-    }
-
-    impl TestRepos {
-        pub(crate) fn new() -> TestRepos {
-            TestRepos::with_entries(vec![])
-        }
-
-        pub(crate) fn with_entries(extra: Vec<CatalogEntry>) -> TestRepos {
-            TestRepos::build(Origin::create(), extra)
-        }
-
-        pub(crate) fn with_origin(origin: Origin) -> TestRepos {
-            TestRepos::build(origin, vec![])
-        }
-
-        fn build(origin: Origin, extra: Vec<CatalogEntry>) -> TestRepos {
-            let root = TempDir::new().unwrap();
-            let entries = [origin.catalog_entry()].into_iter().chain(extra).collect();
-            let manager = RepoManager::new(root.path().to_path_buf(), RepoCatalog::new(entries));
-            TestRepos {
-                origin,
-                root,
-                manager,
-            }
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
+    use serde::Serialize;
     use serde::de::DeserializeOwned;
     use serde_json::{Value, json};
 
-    use super::test_support::{Origin, TestRepos, test_repo_id};
     use super::*;
     use crate::repos::catalog::CatalogEntry;
+    use crate::repos::test_support::{Origin, TestRepos, test_repo_id};
 
     fn params<P: DeserializeOwned>(value: Value) -> P {
         serde_json::from_value(value).unwrap()
@@ -821,5 +554,17 @@ index 0000000..0651af7
             .unwrap();
 
         assert_eq!(tags, vec!["v1.1.0", "v1.0.0"]);
+    }
+
+    #[test]
+    fn parse_all_returns_the_line_that_does_not_parse_as_an_error() {
+        let lines = [
+            "abc\u{1f}Test Author\u{1f}2026-01-01T10:00:00Z\u{1f}Add",
+            "abc",
+        ];
+
+        let result = parse_all(lines.into_iter(), parse_commit_line);
+
+        assert!(matches!(result, Err(RepoError::UnparsableOutput(line)) if line == "abc"));
     }
 }

@@ -13,6 +13,8 @@ pub enum RepoError {
     UnknownRepo(RepoId),
     #[error(transparent)]
     Git(#[from] GitError),
+    #[error("could not parse the git output line {0:?}")]
+    UnparsableOutput(String),
 }
 
 /// The clones fetch the branches and the tags of the origin, and no other refs such
@@ -121,7 +123,7 @@ async fn clone_bare(clone_url: &str, path: &Path) -> Result<(), GitError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repos::ops::test_support::{TestRepos, rev_parse, test_repo_id};
+    use crate::repos::test_support::{TestRepos, rev_parse, test_repo_id};
 
     #[tokio::test]
     async fn ensure_cloned_clones_a_repository_that_is_not_cloned() {

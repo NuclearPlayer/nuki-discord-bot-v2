@@ -4,7 +4,6 @@ use tokio::process::Command;
 
 #[derive(Debug, PartialEq)]
 pub struct GitOutput {
-    pub status_code: i32,
     pub stdout: String,
 }
 
@@ -37,7 +36,6 @@ impl Git {
         let output = command(dir, args).output().await?;
         match output.status.code() {
             Some(code) if code == 0 || allowed_codes.contains(&code) => Ok(GitOutput {
-                status_code: code,
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
             }),
             code => Err(GitError::Failed {
@@ -49,15 +47,19 @@ impl Git {
     }
 }
 
-/// Builds the command without the system and user configuration, so that the
+/// A `git` command without the system and user configuration, so that the
 /// configuration of the machine cannot change the output.
-fn command(dir: Option<&Path>, args: &[&str]) -> Command {
-    let mut command = Command::new("git");
+pub(super) fn isolated_git() -> std::process::Command {
+    let mut command = std::process::Command::new("git");
     command
-        .args(args)
-        .kill_on_drop(true)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null");
+    command
+}
+
+fn command(dir: Option<&Path>, args: &[&str]) -> Command {
+    let mut command = Command::from(isolated_git());
+    command.args(args).kill_on_drop(true);
     if let Some(dir) = dir {
         command.current_dir(dir);
     }

@@ -1,0 +1,30 @@
+{
+  "total_count": 2,
+  "incomplete_results": false,
+  "items": [
+    {
+      "number": 2230,
+      "title": "Playlists upgrade",
+      "state": "open",
+      "html_url": "https://github.com/nukeop/nuclear/pull/2230",
+      "created_at": "2026-10-19T00:58:02Z",
+      "pull_request": {
+        "url": "https://api.github.com/repos/nukeop/nuclear/pulls/2230",
+        "html_url": "https://github.com/nukeop/nuclear/pull/2230",
+        "merged_at": null
+      }
+    },
+    {
+      "number": 2220,
+      "title": "Jam lyrics",
+      "state": "closed",
+      "html_url": "https://github.com/nukeop/nuclear/pull/2220",
+      "created_at": "2026-10-13T20:50:28Z",
+      "pull_request": {
+        "url": "https://api.github.com/repos/nukeop/nuclear/pulls/2220",
+        "html_url": "https://github.com/nukeop/nuclear/pull/2220",
+        "merged_at": "2026-10-13T23:01:47Z"
+      }
+    }
+  ]
+}

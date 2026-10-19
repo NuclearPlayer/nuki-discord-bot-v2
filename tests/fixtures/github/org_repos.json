@@ -1,0 +1,38 @@
+[
+  {
+    "id": 366075650,
+    "name": "nuclear-docs",
+    "full_name": "NuclearPlayer/nuclear-docs",
+    "private": false,
+    "html_url": "https://github.com/NuclearPlayer/nuclear-docs",
+    "description": "Documentation for Nuclear",
+    "fork": false,
+    "clone_url": "https://github.com/NuclearPlayer/nuclear-docs.git",
+    "archived": true,
+    "default_branch": "master"
+  },
+  {
+    "id": 1141496841,
+    "name": "plugin-registry",
+    "full_name": "NuclearPlayer/plugin-registry",
+    "private": false,
+    "html_url": "https://github.com/NuclearPlayer/plugin-registry",
+    "description": null,
+    "fork": false,
+    "clone_url": "https://github.com/NuclearPlayer/plugin-registry.git",
+    "archived": false,
+    "default_branch": "master"
+  },
+  {
+    "id": 1172650156,
+    "name": "nuclear-plugin-lastfm",
+    "full_name": "NuclearPlayer/nuclear-plugin-lastfm",
+    "private": false,
+    "html_url": "https://github.com/NuclearPlayer/nuclear-plugin-lastfm",
+    "description": "Last.fm scrobbling and now playing integration for Nuclear music player",
+    "fork": false,
+    "clone_url": "https://github.com/NuclearPlayer/nuclear-plugin-lastfm.git",
+    "archived": false,
+    "default_branch": "master"
+  }
+]

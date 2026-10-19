@@ -1,0 +1,17 @@
+{
+  "errors": [
+    {
+      "type": "EXCESSIVE_PAGINATION",
+      "path": [
+        "search"
+      ],
+      "locations": [
+        {
+          "line": 1,
+          "column": 36
+        }
+      ],
+      "message": "Requesting 101 records on the `search` connection exceeds the `first` limit of 100 records."
+    }
+  ]
+}

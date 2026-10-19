@@ -1,0 +1,24 @@
+{
+  "data": {
+    "search": {
+      "nodes": [
+        {
+          "number": 2178,
+          "title": "Previous button skips current track instead of restarting it",
+          "url": "https://github.com/nukeop/nuclear/discussions/2178",
+          "createdAt": "2026-09-19T11:09:00Z",
+          "isAnswered": null,
+          "body": "### Description\r\n\r\nWhen pressing the **Previous** button while a track is already playing, Nuclear immediately skips to the previous track.\r\n\r\nThis means there "
+        },
+        {
+          "number": 2161,
+          "title": "I can't hear music",
+          "url": "https://github.com/nukeop/nuclear/discussions/2161",
+          "createdAt": "2026-09-03T21:29:44Z",
+          "isAnswered": false,
+          "body": "This might be a me thing but I run linux specifically parrot os, and when I tried to press play on a song it didn't play, I installed Spotify, Youtube, SoundClo"
+        }
+      ]
+    }
+  }
+}

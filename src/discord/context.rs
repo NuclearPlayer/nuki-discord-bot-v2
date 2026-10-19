@@ -24,9 +24,9 @@ pub fn header(message: &ChatMessage) -> String {
 
 fn roles_text(roles: &[String]) -> String {
     if roles.is_empty() {
-        "no roles".to_string()
+        "roles: none".to_string()
     } else {
-        roles.join(", ")
+        format!("roles: {}", roles.join(", "))
     }
 }
 
@@ -150,7 +150,7 @@ mod tests {
 
         assert_eq!(
             header(&message),
-            "[2026-10-19T12:35:00Z][msg:1100000000000000002][Bob (1300000000000000002) · Linux, supporter]: <@1700000000000000001> it crashes"
+            "[2026-10-19T12:35:00Z][msg:1100000000000000002][Bob (1300000000000000002) · roles: Linux, supporter]: <@1700000000000000001> it crashes"
         );
     }
 
@@ -163,7 +163,7 @@ mod tests {
 
         assert_eq!(
             header(&message),
-            "[2026-10-19T12:35:00Z][msg:1100000000000000002][Bob (1300000000000000002) · no roles]: hello"
+            "[2026-10-19T12:35:00Z][msg:1100000000000000002][Bob (1300000000000000002) · roles: none]: hello"
         );
     }
 
@@ -183,9 +183,9 @@ mod tests {
         assert_eq!(
             jev_lines(&messages),
             vec![
-                "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · Linux, supporter]: hello"
+                "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · roles: Linux, supporter]: hello"
                     .to_string(),
-                "[2026-10-19T12:35:00Z][msg:2][Bob (1300000000000000002) · Linux, supporter]: see these\n[attachment 10: cat.png]\n[attachment 11: player.log]"
+                "[2026-10-19T12:35:00Z][msg:2][Bob (1300000000000000002) · roles: Linux, supporter]: see these\n[attachment 10: cat.png]\n[attachment 11: player.log]"
                     .to_string(),
             ]
         );
@@ -204,7 +204,7 @@ mod tests {
             history,
             vec![
                 Message::user(
-                    "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · Linux, supporter]: hello"
+                    "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · roles: Linux, supporter]: hello"
                 ),
                 Message::assistant("Hi! How can I help?"),
             ]
@@ -224,7 +224,7 @@ mod tests {
             history,
             vec![Message::from(vec![
                 UserContent::text(
-                    "[2026-10-19T12:35:00Z][msg:2][Nuki (1700000000000000001) · no roles]: Here is the screenshot."
+                    "[2026-10-19T12:35:00Z][msg:2][Nuki (1700000000000000001) · roles: none]: Here is the screenshot."
                 ),
                 UserContent::text("[attachment 10: cat.png]"),
                 UserContent::image_url(
@@ -271,7 +271,7 @@ mod tests {
             history,
             vec![
                 Message::user(
-                    "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · Linux, supporter]: what is one?"
+                    "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · roles: Linux, supporter]: what is one?"
                 ),
                 Message::from(AssistantContent::tool_call(
                     "call_1",
@@ -318,7 +318,7 @@ mod tests {
             history,
             vec![Message::from(vec![
                 UserContent::text(
-                    "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · Linux, supporter]: everything"
+                    "[2026-10-19T12:35:00Z][msg:1][Bob (1300000000000000002) · roles: Linux, supporter]: everything"
                 ),
                 UserContent::text("[attachment 10: cat.png]"),
                 UserContent::image_url(

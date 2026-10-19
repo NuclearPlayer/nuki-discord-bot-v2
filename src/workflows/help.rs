@@ -281,7 +281,7 @@ mod tests {
                 "state": {
                     "conversation": [
                         user_turn_text(1, "hi nuki"),
-                        "[2026-10-19T12:35:00Z][msg:2][Nuki (1700000000000000001) · no roles]: Hi! What do you need?",
+                        "[2026-10-19T12:35:00Z][msg:2][Nuki (1700000000000000001) · roles: none]: Hi! What do you need?",
                         user_turn_text(3, "how do I add a plugin?"),
                     ],
                     "draft": DRAFT_TEXT

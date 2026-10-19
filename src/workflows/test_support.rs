@@ -49,7 +49,7 @@ pub(crate) fn bug_fields_missing() -> Value {
 
 pub(crate) fn user_turn_text(id: u64, content: &str) -> String {
     format!(
-        "[2026-10-19T12:35:00Z][msg:{id}][Bob (1300000000000000002) · Linux, supporter]: {content}"
+        "[2026-10-19T12:35:00Z][msg:{id}][Bob (1300000000000000002) · roles: Linux, supporter]: {content}"
     )
 }
 

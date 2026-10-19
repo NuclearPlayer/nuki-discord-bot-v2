@@ -1,0 +1,19 @@
+{
+  "id": "1100000000000000013",
+  "channel_id": "1200000000000000001",
+  "guild_id": "1000000000000000001",
+  "author": { "id": "1300000000000000002", "username": "bob", "global_name": "Bob" },
+  "content": "<@1300000000000000003> <@1700000000000000001> how do I add a plugin?",
+  "timestamp": "2026-10-19T12:37:00.000000+00:00",
+  "tts": false,
+  "mention_everyone": false,
+  "mentions": [
+    { "id": "1300000000000000003", "username": "carol", "global_name": "Carol" },
+    { "id": "1700000000000000001", "username": "nuki-bot", "bot": true }
+  ],
+  "mention_roles": [],
+  "attachments": [],
+  "embeds": [],
+  "pinned": false,
+  "type": 0
+}

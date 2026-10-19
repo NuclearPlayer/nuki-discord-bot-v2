@@ -3,10 +3,10 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use crate::github::client::GitHubClient;
+use crate::repos::catalog::NUCLEAR_REPO;
 use crate::sandbox::operation::{Operation, OperationTable, Param};
 
 const NAMESPACE: &str = "github";
-const DEFAULT_REPO: &str = "nukeop/nuclear";
 const DEFAULT_LIMIT: u32 = 10;
 
 const RELEASES_TYPE: &str =
@@ -35,7 +35,7 @@ struct SearchParams {
 }
 
 fn default_repo() -> String {
-    DEFAULT_REPO.to_owned()
+    NUCLEAR_REPO.to_owned()
 }
 
 fn default_limit() -> u32 {

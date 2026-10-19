@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use indexmap::{IndexMap, indexmap};
 use serde_json::json;
 
@@ -39,11 +41,11 @@ pub enum ClassifyError {
 }
 
 pub struct Classifier {
-    jev: JevClient,
+    jev: Arc<JevClient>,
 }
 
 impl Classifier {
-    pub fn new(jev: JevClient) -> Classifier {
+    pub fn new(jev: Arc<JevClient>) -> Classifier {
         Classifier { jev }
     }
 
@@ -186,9 +188,12 @@ mod tests {
         server: &MockServer,
         trigger: ClassifiedTrigger,
     ) -> Result<Classification, ClassifyError> {
-        Classifier::new(JevClient::new("test-key".to_string(), server.uri()))
-            .classify(trigger, &history(), &new_lines())
-            .await
+        Classifier::new(Arc::new(JevClient::new(
+            "test-key".to_string(),
+            server.uri(),
+        )))
+        .classify(trigger, &history(), &new_lines())
+        .await
     }
 
     #[tokio::test]

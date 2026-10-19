@@ -2,6 +2,9 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+/// The repository of the Nuclear player. The bot clones it at start.
+pub const NUCLEAR_REPO: &str = "nukeop/nuclear";
+
 /// A GitHub repository, written as `owner/name`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]

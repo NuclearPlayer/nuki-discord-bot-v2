@@ -1,0 +1,37 @@
+{
+  "id": "1100000000000000012",
+  "channel_id": "1200000000000000001",
+  "guild_id": "1000000000000000001",
+  "author": { "id": "1300000000000000002", "username": "bob", "global_name": "Bob" },
+  "content": "that did not work",
+  "timestamp": "2026-10-19T12:36:00.000000+00:00",
+  "tts": false,
+  "mention_everyone": false,
+  "mentions": [],
+  "mention_roles": [],
+  "attachments": [],
+  "embeds": [],
+  "pinned": false,
+  "type": 19,
+  "message_reference": {
+    "type": 0,
+    "message_id": "1100000000000000011",
+    "channel_id": "1200000000000000001",
+    "guild_id": "1000000000000000001"
+  },
+  "referenced_message": {
+    "id": "1100000000000000011",
+    "channel_id": "1200000000000000001",
+    "author": { "id": "1700000000000000001", "username": "nuki-bot", "bot": true },
+    "content": "Open the plugin store in the settings.",
+    "timestamp": "2026-10-19T12:35:30.000000+00:00",
+    "tts": false,
+    "mention_everyone": false,
+    "mentions": [],
+    "mention_roles": [],
+    "attachments": [],
+    "embeds": [],
+    "pinned": false,
+    "type": 0
+  }
+}

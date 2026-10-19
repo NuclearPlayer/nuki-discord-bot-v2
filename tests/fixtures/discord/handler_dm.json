@@ -1,0 +1,15 @@
+{
+  "id": "1100000000000000015",
+  "channel_id": "1200000000000000099",
+  "author": { "id": "1300000000000000002", "username": "bob", "global_name": "Bob" },
+  "content": "hi nuki",
+  "timestamp": "2026-10-19T12:39:00.000000+00:00",
+  "tts": false,
+  "mention_everyone": false,
+  "mentions": [],
+  "mention_roles": [],
+  "attachments": [],
+  "embeds": [],
+  "pinned": false,
+  "type": 0
+}

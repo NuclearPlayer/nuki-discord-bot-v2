@@ -1,0 +1,24 @@
+{
+  "id": "1100000000000000002",
+  "channel_id": "1200000000000000001",
+  "author": { "id": "1300000000000000002", "username": "bob", "global_name": "Bob" },
+  "content": "<@1700000000000000001> the player crashes, log attached",
+  "timestamp": "2026-10-19T12:35:00.123000+00:00",
+  "tts": false,
+  "mention_everyone": false,
+  "mentions": [{ "id": "1700000000000000001", "username": "nuki-bot", "bot": true }],
+  "mention_roles": [],
+  "embeds": [],
+  "pinned": false,
+  "type": 0,
+  "attachments": [
+    {
+      "id": "1400000000000000001",
+      "filename": "crash.log",
+      "content_type": "text/plain; charset=utf-8",
+      "size": 4096,
+      "url": "https://cdn.discordapp.com/attachments/1200000000000000001/1400000000000000001/crash.log",
+      "proxy_url": "https://media.discordapp.net/attachments/1200000000000000001/1400000000000000001/crash.log"
+    }
+  ]
+}

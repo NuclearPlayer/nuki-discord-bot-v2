@@ -4,4 +4,5 @@ pub mod commands;
 pub mod context;
 pub mod handler;
 pub mod history;
+pub mod modality;
 pub mod reply;

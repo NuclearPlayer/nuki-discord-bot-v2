@@ -66,6 +66,7 @@ impl LlmClient {
 
     /// Runs one LLM turn: the model can call `run_script` up to 10 times, then it must answer.
     pub async fn run(&self, request: TurnRequest) -> Result<TurnResult, LlmError> {
+        tracing::info!(model = request.model.model_id, "LLM turn");
         let agent = self.agent(&request);
         let response = agent
             .prompt(request.prompt.clone())

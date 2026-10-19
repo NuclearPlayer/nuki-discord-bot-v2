@@ -1,0 +1,69 @@
+{
+  "doing_deep_historical_index": false,
+  "total_results": 37,
+  "messages": [
+    [
+      {
+        "id": "1100000000000000012",
+        "channel_id": "1200000000000000001",
+        "author": {
+          "id": "1300000000000000001",
+          "username": "alice",
+          "global_name": "Alice",
+          "avatar": null,
+          "discriminator": "0"
+        },
+        "content": "the playlist import works again in 1.51",
+        "timestamp": "2026-10-18T09:00:05.000000+00:00",
+        "edited_timestamp": null,
+        "tts": false,
+        "mention_everyone": false,
+        "mentions": [],
+        "mention_roles": [],
+        "attachments": [],
+        "embeds": [],
+        "pinned": false,
+        "type": 0,
+        "flags": 0,
+        "components": [],
+        "hit": true
+      }
+    ],
+    [
+      {
+        "id": "1100000000000000011",
+        "channel_id": "1200000000000000001",
+        "author": {
+          "id": "1300000000000000001",
+          "username": "alice",
+          "global_name": "Alice",
+          "avatar": null,
+          "discriminator": "0"
+        },
+        "content": "my playlist does not load, log attached",
+        "timestamp": "2026-10-17T21:14:30.500000+00:00",
+        "edited_timestamp": null,
+        "tts": false,
+        "mention_everyone": false,
+        "mentions": [],
+        "mention_roles": [],
+        "attachments": [
+          {
+            "id": "1400000000000000011",
+            "filename": "nuclear.log",
+            "content_type": "text/plain; charset=utf-8",
+            "size": 2048,
+            "url": "https://cdn.discordapp.com/attachments/1200000000000000001/1400000000000000011/nuclear.log",
+            "proxy_url": "https://media.discordapp.net/attachments/1200000000000000001/1400000000000000011/nuclear.log"
+          }
+        ],
+        "embeds": [],
+        "pinned": false,
+        "type": 0,
+        "flags": 0,
+        "components": [],
+        "hit": true
+      }
+    ]
+  ]
+}

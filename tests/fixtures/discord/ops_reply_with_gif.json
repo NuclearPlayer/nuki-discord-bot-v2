@@ -1,0 +1,63 @@
+{
+  "id": "1100000000000000002",
+  "channel_id": "1200000000000000001",
+  "author": {
+    "id": "1300000000000000002",
+    "username": "bob",
+    "global_name": "Bob",
+    "avatar": null,
+    "discriminator": "0"
+  },
+  "content": "can we have this as an emoji?",
+  "timestamp": "2026-10-19T12:35:00.123000+00:00",
+  "edited_timestamp": null,
+  "tts": false,
+  "mention_everyone": false,
+  "mentions": [],
+  "mention_roles": [],
+  "attachments": [
+    {
+      "id": "1400000000000000001",
+      "filename": "dance.gif",
+      "content_type": "image/gif",
+      "size": 6,
+      "url": "MOCK_SERVER/attachments/1200000000000000001/1400000000000000001/dance.gif",
+      "proxy_url": "https://media.discordapp.net/attachments/1200000000000000001/1400000000000000001/dance.gif",
+      "width": 1,
+      "height": 1
+    }
+  ],
+  "embeds": [],
+  "pinned": false,
+  "type": 19,
+  "flags": 0,
+  "message_reference": {
+    "type": 0,
+    "message_id": "1100000000000000001",
+    "channel_id": "1200000000000000001",
+    "guild_id": "1000000000000000001"
+  },
+  "referenced_message": {
+    "id": "1100000000000000001",
+    "channel_id": "1200000000000000001",
+    "author": {
+      "id": "1300000000000000001",
+      "username": "alice",
+      "global_name": "Alice",
+      "avatar": null,
+      "discriminator": "0"
+    },
+    "content": "nuclear has a dancing mascot now",
+    "timestamp": "2026-10-19T12:34:56.789000+00:00",
+    "edited_timestamp": null,
+    "tts": false,
+    "mention_everyone": false,
+    "mentions": [],
+    "mention_roles": [],
+    "attachments": [],
+    "embeds": [],
+    "pinned": false,
+    "type": 0,
+    "flags": 0
+  }
+}

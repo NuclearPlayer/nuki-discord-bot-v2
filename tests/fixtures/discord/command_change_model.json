@@ -1,0 +1,24 @@
+{
+  "id": "1800000000000000001",
+  "application_id": "1700000000000000001",
+  "type": 2,
+  "token": "interaction-token",
+  "version": 1,
+  "data": {
+    "id": "1900000000000000001",
+    "name": "change-model",
+    "type": 1,
+    "options": [{ "name": "model", "type": 3, "value": "MODEL_ID" }]
+  },
+  "channel_id": "1200000000000000001",
+  "user": {
+    "id": "1300000000000000001",
+    "username": "alice",
+    "global_name": "Alice",
+    "discriminator": "0",
+    "avatar": null
+  },
+  "locale": "en-US",
+  "entitlements": [],
+  "attachment_size_limit": 10485760
+}

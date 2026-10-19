@@ -187,16 +187,7 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
-
-    fn attachment(filename: &str, content_type: Option<&str>) -> AttachmentMeta {
-        AttachmentMeta {
-            id: 1400000000000000001,
-            filename: filename.to_string(),
-            content_type: content_type.map(str::to_string),
-            size: 2048,
-            url: format!("https://cdn.discordapp.com/attachments/1/2/{filename}"),
-        }
-    }
+    use crate::discord::test_support::attachment;
 
     fn modalities(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| name.to_string()).collect()

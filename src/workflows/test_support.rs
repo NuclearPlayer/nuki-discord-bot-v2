@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{TimeZone, Utc};
+use serde_json::{Value, json};
 use wiremock::MockServer;
 
 use super::{TurnContext, WorkflowDeps};
@@ -36,6 +37,18 @@ pub(crate) const RUNTIME_SECTION: &str = "## Current context\n\
     Custom emoji of this server: none\n\
     Current channel: #general\n\
     Current time: 2026-10-19T12:40:00Z";
+
+/// The Jev answers for the bug fields. The answers are not in the sequence of the file, and
+/// `platform` is exactly one half.
+pub(crate) fn bug_fields_missing() -> Value {
+    json!({
+        "item": { "type": "noul", "noul": 0.51 },
+        "plugins": { "type": "noul", "noul": 0.2 },
+        "version": { "type": "noul", "noul": 0.93 },
+        "sources": { "type": "noul", "noul": 0.8 },
+        "platform": { "type": "noul", "noul": 0.5 }
+    })
+}
 
 pub(crate) fn user_turn_text(id: u64, content: &str) -> String {
     format!(

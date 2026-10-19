@@ -37,9 +37,10 @@ pub struct CustomEmoji {
 
 impl fmt::Display for CustomEmoji {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.animated {
-            true => write!(f, "<a:{}:{}>", self.name, self.id),
-            false => write!(f, "<:{}:{}>", self.name, self.id),
+        if self.animated {
+            write!(f, "<a:{}:{}>", self.name, self.id)
+        } else {
+            write!(f, "<:{}:{}>", self.name, self.id)
         }
     }
 }

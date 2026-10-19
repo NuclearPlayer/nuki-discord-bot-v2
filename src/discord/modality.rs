@@ -93,16 +93,7 @@ fn has_text_extension(filename: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn attachment(filename: &str, content_type: Option<&str>) -> AttachmentMeta {
-        AttachmentMeta {
-            id: 1400000000000000001,
-            filename: filename.to_string(),
-            content_type: content_type.map(str::to_string),
-            size: 2048,
-            url: format!("https://cdn.discordapp.com/attachments/1/2/{filename}"),
-        }
-    }
+    use crate::discord::test_support::attachment;
 
     #[test]
     fn modality_of_each_content_type_and_extension() {

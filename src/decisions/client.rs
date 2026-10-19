@@ -6,6 +6,9 @@ use super::types::{Answer, DecisionRequest, DecisionResponse, Question};
 
 pub const JEV_MODEL: &str = "~typesafe/jev-latest";
 
+/// The path of the Decisions API, after the base URL.
+pub(crate) const DECISIONS_PATH: &str = "/api/alpha/decisions";
+
 #[derive(Debug, thiserror::Error)]
 pub enum DecisionError {
     #[error("the call to Jev failed: {0}")]
@@ -41,7 +44,7 @@ impl JevClient {
         };
         let response = self
             .http
-            .post(format!("{}/api/alpha/decisions", self.base_url))
+            .post(format!("{}{DECISIONS_PATH}", self.base_url))
             .bearer_auth(&self.api_key)
             .json(&request)
             .send()
@@ -117,7 +120,7 @@ mod tests {
     async fn server_responding_with(response: ResponseTemplate) -> MockServer {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/api/alpha/decisions"))
+            .and(path(DECISIONS_PATH))
             .respond_with(response)
             .mount(&server)
             .await;
@@ -136,7 +139,7 @@ mod tests {
     async fn decide_sends_the_model_the_state_and_the_questions() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/api/alpha/decisions"))
+            .and(path(DECISIONS_PATH))
             .and(header("Authorization", "Bearer test-key"))
             .and(body_json(
                 serde_json::from_str::<Value>(include_str!(

@@ -5,15 +5,15 @@ use std::time::Instant;
 
 use serenity::model::channel::{GuildChannel, Message};
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 
 use crate::app::App;
 use crate::discord::attachments::ResolvedMessage;
 use crate::discord::context::jev_lines;
 use crate::discord::handler::facts_of;
-use crate::discord::history::{fetch_channel, fetch_unit_context, turn_context};
+use crate::discord::history::{fetch_channel, fetch_unit_context};
 use crate::discord::intake_thread::{continue_intake, intake_workflow, start_intake};
 use crate::discord::reply::{AppliedTurn, apply_outcome};
+use crate::discord::turn_context::turn_context;
 use crate::routing::category::Category;
 use crate::routing::dispatch::{Decision, decide, describe};
 use crate::routing::trigger::{ClassifiedTrigger, MessageFacts, Trigger, trigger_of_unit};
@@ -24,15 +24,12 @@ use crate::workflows::Workflow;
 const ROUTING: &str = "routing";
 
 /// Reads the units of the debouncer, and processes each unit in its own task.
-pub fn spawn_unit_reader(
-    app: Arc<App>,
-    mut units: mpsc::UnboundedReceiver<Vec<Message>>,
-) -> JoinHandle<()> {
+pub fn spawn_unit_reader(app: Arc<App>, mut units: mpsc::UnboundedReceiver<Vec<Message>>) {
     tokio::spawn(async move {
         while let Some(unit) = units.recv().await {
             tokio::spawn(process_unit(Arc::clone(&app), unit));
         }
-    })
+    });
 }
 
 /// Runs the pipeline for one unit. An error goes to the admin log, and Nuki sends nothing.

@@ -17,6 +17,9 @@ use crate::workflows::{Outcome, Reply};
 /// Discord requires a thread name of 1 to 100 characters.
 const THREAD_NAME_CHARS: usize = 100;
 
+/// Discord rejects a message with more than 2000 characters.
+const MESSAGE_CHARS: usize = 2000;
+
 /// Where and how the outcome of one turn goes to Discord.
 pub struct AppliedTurn {
     pub trigger: Trigger,
@@ -75,27 +78,83 @@ pub async fn apply_intake_outcome(
     Ok(())
 }
 
-/// Sends the text, and stores the tool turn with the ID of the sent message.
+/// Sends the text in parts that Discord accepts: the first part as the reply, the rest as usual
+/// messages in the same channel. Stores the tool turn with the ID of the first message.
 async fn send_reply(app: &App, applied: &AppliedTurn, reply: Reply) -> anyhow::Result<()> {
-    let message = CreateMessage::new().content(reply.text);
+    let mut parts = split_reply(&reply.text).into_iter();
+    let first = parts.next().expect("split_reply returns at least one part");
+    let message = CreateMessage::new().content(first);
     let message = match applied.reply_to {
         Some(message_id) => message.reference_message((applied.channel_id, message_id)),
         None => message,
     };
     let sent = applied.channel_id.send_message(&app.http, message).await?;
+    save_tool_turn(app, applied.channel_id, sent.id, &reply).await?;
+    for part in parts {
+        applied
+            .channel_id
+            .send_message(&app.http, CreateMessage::new().content(part))
+            .await?;
+    }
+    Ok(())
+}
+
+/// Stores the tool messages of the reply with the ID of the message that starts the reply.
+async fn save_tool_turn(
+    app: &App,
+    channel_id: ChannelId,
+    message_id: MessageId,
+    reply: &Reply,
+) -> anyhow::Result<()> {
     if reply.turn_messages.is_empty() {
         return Ok(());
     }
     app.store
         .tool_turns()
         .save(
-            applied.channel_id.get(),
-            sent.id.get(),
+            channel_id.get(),
+            message_id.get(),
             &reply.turn_messages,
             Utc::now(),
         )
         .await?;
     Ok(())
+}
+
+/// Splits the text into parts of at most `MESSAGE_CHARS` characters. A part ends at a line break
+/// where possible. A line longer than the limit splits at a character boundary. An empty line at
+/// the start of a part is dropped, because Discord rejects an empty message.
+fn split_reply(text: &str) -> Vec<String> {
+    text.split('\n')
+        .flat_map(line_pieces)
+        .fold(Vec::new(), |mut parts: Vec<String>, piece| {
+            match parts.last_mut() {
+                Some(part) if fits(part, &piece) => {
+                    part.push('\n');
+                    part.push_str(&piece);
+                }
+                Some(_) if piece.is_empty() => {}
+                _ => parts.push(piece),
+            }
+            parts
+        })
+}
+
+/// The line in pieces of at most `MESSAGE_CHARS` characters. An empty line is one empty piece.
+fn line_pieces(line: &str) -> Vec<String> {
+    if line.is_empty() {
+        return vec![String::new()];
+    }
+    let chars: Vec<char> = line.chars().collect();
+    chars
+        .chunks(MESSAGE_CHARS)
+        .map(|chunk| chunk.iter().collect())
+        .collect()
+}
+
+/// Whether the piece fits after `part` on a new line.
+fn fits(part: &str, piece: &str) -> bool {
+    part.chars().count() + 1 + piece.chars().count() <= MESSAGE_CHARS
 }
 
 fn start_cooldown_after_unsolicited_chat(app: &App, applied: &AppliedTurn) {
@@ -137,5 +196,41 @@ mod tests {
     #[test]
     fn thread_name_uses_the_author_name_for_empty_content() {
         assert_eq!(thread_name("", "Bob"), "Bob");
+    }
+
+    #[test]
+    fn a_short_reply_is_one_part() {
+        assert_eq!(
+            split_reply("Open Settings.\nPick a theme."),
+            vec!["Open Settings.\nPick a theme."]
+        );
+    }
+
+    #[test]
+    fn a_long_reply_splits_at_line_breaks() {
+        let first = "a".repeat(1200);
+        let second = "b".repeat(900);
+        let third = "c".repeat(1000);
+        let text = format!("{first}\n{second}\n{third}");
+
+        assert_eq!(
+            split_reply(&text),
+            vec![first, format!("{second}\n{third}")]
+        );
+    }
+
+    #[test]
+    fn a_line_longer_than_the_limit_splits_at_a_character_boundary() {
+        let text = format!("intro\n{}", "é".repeat(4500));
+
+        assert_eq!(
+            split_reply(&text),
+            vec![
+                "intro".to_string(),
+                "é".repeat(2000),
+                "é".repeat(2000),
+                "é".repeat(500),
+            ]
+        );
     }
 }

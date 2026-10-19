@@ -68,17 +68,7 @@ mod tests {
 
     use super::*;
     use crate::decisions::test_support::{jev_request_bodies, mount_jev_answers};
-
-    /// The answers are not in the sequence of the file, and `platform` is exactly one half.
-    fn bug_fields_missing() -> Value {
-        json!({
-            "item": { "type": "noul", "noul": 0.51 },
-            "plugins": { "type": "noul", "noul": 0.2 },
-            "version": { "type": "noul", "noul": 0.93 },
-            "sources": { "type": "noul", "noul": 0.8 },
-            "platform": { "type": "noul", "noul": 0.5 }
-        })
-    }
+    use crate::workflows::test_support::bug_fields_missing;
 
     fn conversation() -> Vec<String> {
         vec![

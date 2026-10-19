@@ -78,11 +78,11 @@ fn parameter_list(params: &[Param]) -> String {
 }
 
 fn parameter_field(param: &Param) -> String {
-    let marker = match param.optional {
-        true => "?",
-        false => "",
-    };
-    format!("{}{marker}: {}", param.name, param.ts_type)
+    if param.optional {
+        format!("{}?: {}", param.name, param.ts_type)
+    } else {
+        format!("{}: {}", param.name, param.ts_type)
+    }
 }
 
 fn namespace_object(namespace: &str, operations: &[&Operation]) -> String {

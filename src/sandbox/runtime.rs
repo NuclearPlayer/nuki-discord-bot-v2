@@ -65,12 +65,13 @@ impl ScriptOutcome {
     /// Serializes the outcome as JSON and cuts it to at most `max_output_bytes`.
     pub fn to_tool_result(&self, max_output_bytes: usize) -> String {
         let text = serde_json::to_string(self).expect("a script outcome always serializes");
-        match text.len() > max_output_bytes {
-            true => format!(
+        if text.len() > max_output_bytes {
+            format!(
                 "{}\n[truncated]",
                 &text[..text.floor_char_boundary(max_output_bytes)]
-            ),
-            false => text,
+            )
+        } else {
+            text
         }
     }
 }

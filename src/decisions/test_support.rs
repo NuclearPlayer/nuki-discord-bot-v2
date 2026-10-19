@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-pub(crate) const JEV_PATH: &str = "/api/alpha/decisions";
+use super::client::DECISIONS_PATH;
 
 pub(crate) fn jev_response(answers: Value) -> ResponseTemplate {
     ResponseTemplate::new(200).set_body_json(json!({
@@ -13,7 +13,7 @@ pub(crate) fn jev_response(answers: Value) -> ResponseTemplate {
 
 pub(crate) async fn mount_jev_answers(server: &MockServer, answers: Value) {
     Mock::given(method("POST"))
-        .and(path(JEV_PATH))
+        .and(path(DECISIONS_PATH))
         .respond_with(jev_response(answers))
         .mount(server)
         .await;
@@ -25,7 +25,7 @@ pub(crate) async fn jev_request_bodies(server: &MockServer) -> Vec<Value> {
         .await
         .unwrap()
         .into_iter()
-        .filter(|request| request.url.path() == JEV_PATH)
+        .filter(|request| request.url.path() == DECISIONS_PATH)
         .map(|request| request.body_json().unwrap())
         .collect()
 }

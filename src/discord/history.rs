@@ -1,32 +1,21 @@
-//! Gets the conversation data of a turn from the Discord HTTP API.
-
-use std::collections::HashMap;
+//! Gets the messages of a turn from the Discord HTTP API.
 
 use anyhow::Context;
-use chrono::Utc;
 use futures::future::try_join_all;
 use serenity::builder::GetMessages;
 use serenity::model::channel::{GuildChannel, Message, MessageType};
-use serenity::model::guild::Role;
-use serenity::model::id::{ChannelId, MessageId, RoleId, UserId};
+use serenity::model::id::{ChannelId, MessageId};
 
 use crate::app::App;
 use crate::discord::attachments::{ResolvedMessage, resolve_message};
+use crate::discord::authors::authors_of;
 use crate::discord::chat_message::ChatMessage;
+use crate::discord::http_error::is_not_found;
 use crate::discord::pipeline::first_message;
-use crate::prompts::system::{CustomEmoji, RuntimeContext};
-use crate::routing::trigger::Trigger;
 use crate::store::intakes::Intake;
-use crate::workflows::TurnContext;
 
 /// Discord gives at most 100 messages in one request.
 const PAGE_SIZE: u8 = 100;
-
-/// The display name and the role names of an author.
-struct Author {
-    name: String,
-    roles: Vec<String>,
-}
 
 /// A message that a person or a bot wrote. All other kinds are system messages.
 pub fn is_system(message: &Message) -> bool {
@@ -200,115 +189,4 @@ async fn resolve(app: &App, messages: Vec<Message>) -> anyhow::Result<Vec<Resolv
         .iter()
         .map(|chat_message| resolve_message(chat_message, &input_modalities, &app.rest));
     Ok(try_join_all(resolved).await?)
-}
-
-/// Gets each author of the messages one time.
-async fn authors_of(app: &App, messages: &[Message]) -> anyhow::Result<HashMap<UserId, Author>> {
-    let roles = app.guild_id.roles(&app.http).await?;
-    let one_message_per_author: HashMap<UserId, &Message> = messages
-        .iter()
-        .map(|message| (message.author.id, message))
-        .collect();
-    let authors = one_message_per_author
-        .into_iter()
-        .map(|(user_id, message)| {
-            let roles = &roles;
-            async move { anyhow::Ok((user_id, author(app, message, roles).await?)) }
-        });
-    Ok(try_join_all(authors).await?.into_iter().collect())
-}
-
-/// The nickname, else the global name, else the username, and the names of the roles.
-/// An author who is not a member, for example a user who left or a webhook, has no roles.
-async fn author(
-    app: &App,
-    message: &Message,
-    roles: &HashMap<RoleId, Role>,
-) -> anyhow::Result<Author> {
-    match app.guild_id.member(&app.http, message.author.id).await {
-        Ok(member) => Ok(Author {
-            name: member.display_name().to_string(),
-            roles: member
-                .roles
-                .iter()
-                .filter_map(|role_id| roles.get(role_id))
-                .map(|role| role.name.clone())
-                .collect(),
-        }),
-        Err(error) if is_not_found(&error) => Ok(Author {
-            name: message.author.display_name().to_string(),
-            roles: Vec::new(),
-        }),
-        Err(error) => Err(error.into()),
-    }
-}
-
-pub(super) fn is_not_found(error: &serenity::Error) -> bool {
-    match error {
-        serenity::Error::Http(http_error) => http_error
-            .status_code()
-            .is_some_and(|status| status.as_u16() == 404),
-        _ => false,
-    }
-}
-
-async fn runtime_context(app: &App, channel_name: &str) -> anyhow::Result<RuntimeContext> {
-    let emoji = app
-        .guild_id
-        .emojis(&app.http)
-        .await?
-        .into_iter()
-        .map(|emoji| CustomEmoji {
-            name: emoji.name,
-            id: emoji.id.get(),
-            animated: emoji.animated,
-        })
-        .collect();
-    Ok(RuntimeContext {
-        bot_name: app.nuki.name.clone(),
-        bot_user_id: app.nuki.user_id,
-        emoji,
-        channel_name: channel_name.to_string(),
-        now: Utc::now(),
-    })
-}
-
-/// The turn context, with the stored tool turns of the messages of the history.
-pub async fn turn_context(
-    app: &App,
-    trigger: Trigger,
-    channel_name: &str,
-    history: Vec<ResolvedMessage>,
-    unit_len: usize,
-) -> anyhow::Result<TurnContext> {
-    let stored_turns = stored_turns(app, &history).await?;
-    Ok(TurnContext {
-        trigger,
-        channel_name: channel_name.to_string(),
-        history,
-        unit_len,
-        stored_turns,
-        runtime: runtime_context(app, channel_name).await?,
-    })
-}
-
-/// The store keeps each turn with the channel of its message. The history of an intake has
-/// messages of two channels: the parent channel and the thread.
-async fn stored_turns(
-    app: &App,
-    history: &[ResolvedMessage],
-) -> anyhow::Result<HashMap<u64, Vec<serde_json::Value>>> {
-    let mut message_ids_by_channel: HashMap<u64, Vec<u64>> = HashMap::new();
-    for resolved in history {
-        message_ids_by_channel
-            .entry(resolved.message.channel_id)
-            .or_default()
-            .push(resolved.message.id);
-    }
-    let tool_turns = app.store.tool_turns();
-    let loads = message_ids_by_channel
-        .iter()
-        .map(|(channel_id, message_ids)| tool_turns.load(*channel_id, message_ids));
-    let by_channel = try_join_all(loads).await?;
-    Ok(by_channel.into_iter().flatten().collect())
 }

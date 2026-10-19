@@ -210,7 +210,9 @@ mod tests {
     use crate::routing::trigger::Trigger;
     use crate::store::intakes::IntakeStatus;
     use crate::workflows::Reply;
-    use crate::workflows::test_support::{RUNTIME_SECTION, context, deps, user_turn_text};
+    use crate::workflows::test_support::{
+        RUNTIME_SECTION, bug_fields_missing, context, deps, user_turn_text,
+    };
 
     const EMPTY_FINAL_TEXT: &str =
         include_str!("../../../tests/fixtures/llm/empty_final_text.json");
@@ -246,16 +248,6 @@ mod tests {
         IntakeWorkflow {
             deps: deps(server).await,
         }
-    }
-
-    fn bug_fields_missing() -> Value {
-        json!({
-            "version": { "type": "noul", "noul": 0.93 },
-            "platform": { "type": "noul", "noul": 0.5 },
-            "plugins": { "type": "noul", "noul": 0.2 },
-            "sources": { "type": "noul", "noul": 0.8 },
-            "item": { "type": "noul", "noul": 0.51 }
-        })
     }
 
     fn bug_fields_present() -> Value {

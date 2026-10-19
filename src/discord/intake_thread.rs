@@ -7,9 +7,11 @@ use serenity::model::channel::{ChannelType, GuildChannel, Message};
 use serenity::model::id::{ChannelId, MessageId};
 
 use crate::app::App;
-use crate::discord::history::{fetch_channel, fetch_thread_history, is_not_found, turn_context};
+use crate::discord::history::{fetch_channel, fetch_thread_history};
+use crate::discord::http_error::is_not_found;
 use crate::discord::pipeline::{first_message, last_message};
 use crate::discord::reply::{AppliedTurn, apply_intake_outcome, thread_name};
+use crate::discord::turn_context::turn_context;
 use crate::routing::category::Category;
 use crate::routing::trigger::Trigger;
 use crate::store::intakes::{Intake, IntakeKind, NewIntake};
@@ -60,12 +62,23 @@ pub(super) async fn continue_intake(
     apply_intake_outcome(app, &applied, &intake, outcome).await
 }
 
-/// Completes an intake whose reporter does not answer. An error goes to the admin log.
+/// Completes an intake whose reporter does not answer. An error goes to the admin log, and the
+/// intake is touched, so the next attempt waits one full intake timeout.
 pub(crate) async fn complete_inactive_intake(app: &App, intake: &Intake) {
     if let Err(error) = complete_or_close(app, intake).await {
         app.admin_log
             .report_error(intake_workflow(intake.kind), intake.thread_id, &error)
             .await;
+        postpone(app, intake).await;
+    }
+}
+
+async fn postpone(app: &App, intake: &Intake) {
+    if let Err(error) = app.store.intakes().touch(intake.id, Utc::now()).await {
+        tracing::error!(
+            intake_id = intake.id,
+            "could not postpone the intake after a failed completion: {error}"
+        );
     }
 }
 

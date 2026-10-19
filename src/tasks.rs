@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{TimeDelta, Utc};
-use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval, interval_at};
 
 use crate::app::App;
@@ -16,7 +15,7 @@ const INTAKE_CHECK_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
 /// Fetches the clones every `period`. The first fetch is after one period, because
 /// `App::build` clones at start.
-pub fn spawn_repo_fetch(repos: Arc<RepoManager>, period: Duration) -> JoinHandle<()> {
+pub fn spawn_repo_fetch(repos: Arc<RepoManager>, period: Duration) {
     tokio::spawn(async move {
         let mut ticks = interval_at(Instant::now() + period, period);
         ticks.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -26,11 +25,11 @@ pub fn spawn_repo_fetch(repos: Arc<RepoManager>, period: Duration) -> JoinHandle
                 tracing::warn!(repo = %id, "could not fetch the repository: {error}");
             }
         }
-    })
+    });
 }
 
 /// Completes the intakes whose reporter sent no message for `INTAKE_TIMEOUT_HOURS`.
-pub fn spawn_intake_timeout(app: Arc<App>) -> JoinHandle<()> {
+pub fn spawn_intake_timeout(app: Arc<App>) {
     let timeout = TimeDelta::hours(app.config.intake_timeout_hours as i64);
     tokio::spawn(async move {
         let mut ticks = interval(INTAKE_CHECK_INTERVAL);
@@ -46,5 +45,5 @@ pub fn spawn_intake_timeout(app: Arc<App>) -> JoinHandle<()> {
                 Err(error) => tracing::error!("could not get the due intakes: {error}"),
             }
         }
-    })
+    });
 }

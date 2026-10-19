@@ -112,8 +112,8 @@ mod tests {
     use wiremock::{Mock, MockServer};
 
     use super::*;
-    use crate::decisions::client::JEV_MODEL;
-    use crate::decisions::test_support::{JEV_PATH, jev_response, mount_jev_answers};
+    use crate::decisions::client::{DECISIONS_PATH, JEV_MODEL};
+    use crate::decisions::test_support::{jev_response, mount_jev_answers};
 
     fn history() -> Vec<String> {
         vec!["alice: does anyone know how to add a plugin?".to_string()]
@@ -169,7 +169,7 @@ mod tests {
     async fn jev_expecting(request: Value) -> MockServer {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path(JEV_PATH))
+            .and(path(DECISIONS_PATH))
             .and(body_json(request))
             .respond_with(jev_response(answer_with(&[("bug_report", 1.0)])))
             .expect(1)

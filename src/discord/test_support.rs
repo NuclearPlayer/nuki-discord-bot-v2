@@ -1,6 +1,16 @@
 use chrono::{TimeZone, Utc};
 
-use crate::discord::chat_message::ChatMessage;
+use crate::discord::chat_message::{AttachmentMeta, ChatMessage};
+
+pub(crate) fn attachment(filename: &str, content_type: Option<&str>) -> AttachmentMeta {
+    AttachmentMeta {
+        id: 1400000000000000001,
+        filename: filename.to_string(),
+        content_type: content_type.map(str::to_string),
+        size: 2048,
+        url: format!("https://cdn.discordapp.com/attachments/1/2/{filename}"),
+    }
+}
 
 pub(crate) fn user_message(id: u64, content: &str) -> ChatMessage {
     ChatMessage {

@@ -170,8 +170,8 @@ mod tests {
     const CALLBACK_PATH: &str =
         "/api/v10/interactions/1800000000000000001/interaction-token/callback";
 
-    /// The two mock servers and the state that `execute` needs.
     struct Fixture {
+        _openrouter: MockServer,
         discord: MockServer,
         http: Http,
         models: ModelsClient,
@@ -179,8 +179,6 @@ mod tests {
     }
 
     impl Fixture {
-        /// OpenRouter lists `google/gemini-3.8-flash` and `anthropic/claude-sonnet-4`.
-        /// The active model is `google/gemini-3.8-flash`.
         async fn start() -> Fixture {
             let openrouter = MockServer::start().await;
             Mock::given(method("GET"))
@@ -203,9 +201,10 @@ mod tests {
                 .await
                 .unwrap();
             Fixture {
+                models: ModelsClient::new(openrouter.uri()),
+                _openrouter: openrouter,
                 discord,
                 http,
-                models: ModelsClient::new(openrouter.uri()),
                 active,
             }
         }

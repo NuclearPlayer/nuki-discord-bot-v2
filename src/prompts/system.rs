@@ -1,1 +1,218 @@
+use std::fmt;
 
+use chrono::{DateTime, SecondsFormat, Utc};
+
+use crate::prompts::files::{
+    KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_BUG_INTAKE, WORKFLOW_CHAT, WORKFLOW_FEATURE_INTAKE,
+    WORKFLOW_HELP, WORKFLOW_HELP_FALLBACK,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowPrompt {
+    Help,
+    HelpFallback,
+    BugIntake,
+    FeatureIntake,
+    Chat,
+}
+
+impl WorkflowPrompt {
+    pub fn text(self) -> &'static str {
+        match self {
+            WorkflowPrompt::Help => WORKFLOW_HELP,
+            WorkflowPrompt::HelpFallback => WORKFLOW_HELP_FALLBACK,
+            WorkflowPrompt::BugIntake => WORKFLOW_BUG_INTAKE,
+            WorkflowPrompt::FeatureIntake => WORKFLOW_FEATURE_INTAKE,
+            WorkflowPrompt::Chat => WORKFLOW_CHAT,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomEmoji {
+    pub name: String,
+    pub id: u64,
+    pub animated: bool,
+}
+
+impl fmt::Display for CustomEmoji {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.animated {
+            true => write!(f, "<a:{}:{}>", self.name, self.id),
+            false => write!(f, "<:{}:{}>", self.name, self.id),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeContext {
+    pub bot_name: String,
+    pub bot_user_id: u64,
+    pub emoji: Vec<CustomEmoji>,
+    pub channel_name: String,
+    pub now: DateTime<Utc>,
+}
+
+impl RuntimeContext {
+    fn section(&self) -> String {
+        format!(
+            "## Current context\n\
+            \n\
+            You are {name}, with the user ID {id}. Users mention you with <@{id}>.\n\
+            Custom emoji of this server: {emoji}\n\
+            Current channel: #{channel}\n\
+            Current time: {now}",
+            name = self.bot_name,
+            id = self.bot_user_id,
+            emoji = emoji_list(&self.emoji),
+            channel = self.channel_name,
+            now = self.now.to_rfc3339_opts(SecondsFormat::Secs, true),
+        )
+    }
+}
+
+fn emoji_list(emoji: &[CustomEmoji]) -> String {
+    if emoji.is_empty() {
+        return "none".to_string();
+    }
+    emoji
+        .iter()
+        .map(CustomEmoji::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub struct SystemPrompt;
+
+impl SystemPrompt {
+    pub fn build(
+        workflow: WorkflowPrompt,
+        extra: Option<&str>,
+        runtime: &RuntimeContext,
+    ) -> String {
+        let runtime_section = runtime.section();
+        [PERSONALITY, NUCLEAR, KNOWLEDGE, workflow.text()]
+            .into_iter()
+            .chain(extra)
+            .chain([runtime_section.as_str()])
+            .map(str::trim)
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn runtime_with_emoji(emoji: Vec<CustomEmoji>) -> RuntimeContext {
+        RuntimeContext {
+            bot_name: "Nuki".to_string(),
+            bot_user_id: 1_234_567_890,
+            emoji,
+            channel_name: "general".to_string(),
+            now: DateTime::parse_from_rfc3339("2026-10-19T12:34:56.789Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        }
+    }
+
+    fn two_emoji() -> Vec<CustomEmoji> {
+        vec![
+            CustomEmoji {
+                name: "nuki_wave".to_string(),
+                id: 111,
+                animated: false,
+            },
+            CustomEmoji {
+                name: "nuki_dance".to_string(),
+                id: 222,
+                animated: true,
+            },
+        ]
+    }
+
+    fn runtime_section(emoji_line: &str) -> String {
+        format!(
+            "## Current context\n\
+            \n\
+            You are Nuki, with the user ID 1234567890. Users mention you with <@1234567890>.\n\
+            Custom emoji of this server: {emoji_line}\n\
+            Current channel: #general\n\
+            Current time: 2026-10-19T12:34:56Z"
+        )
+    }
+
+    fn after_shared_parts(parts: &[&str]) -> String {
+        [
+            &[PERSONALITY.trim(), NUCLEAR.trim(), KNOWLEDGE.trim()],
+            parts,
+        ]
+        .concat()
+        .join("\n\n")
+    }
+
+    #[test]
+    fn each_workflow_prompt_maps_to_its_file() {
+        let texts = [
+            WorkflowPrompt::Help,
+            WorkflowPrompt::HelpFallback,
+            WorkflowPrompt::BugIntake,
+            WorkflowPrompt::FeatureIntake,
+            WorkflowPrompt::Chat,
+        ]
+        .map(WorkflowPrompt::text);
+
+        assert_eq!(
+            texts,
+            [
+                WORKFLOW_HELP,
+                WORKFLOW_HELP_FALLBACK,
+                WORKFLOW_BUG_INTAKE,
+                WORKFLOW_FEATURE_INTAKE,
+                WORKFLOW_CHAT,
+            ]
+        );
+    }
+
+    #[test]
+    fn build_joins_the_parts_in_sequence_with_the_runtime_section() {
+        let runtime = runtime_with_emoji(two_emoji());
+
+        let prompt = SystemPrompt::build(
+            WorkflowPrompt::BugIntake,
+            Some("\nMissing fields: version, platform\n\n"),
+            &runtime,
+        );
+
+        let expected = after_shared_parts(&[
+            WORKFLOW_BUG_INTAKE.trim(),
+            "Missing fields: version, platform",
+            &runtime_section("<:nuki_wave:111>, <a:nuki_dance:222>"),
+        ]);
+        assert_eq!(prompt, expected);
+    }
+
+    #[test]
+    fn build_omits_extra_when_it_is_absent() {
+        let runtime = runtime_with_emoji(two_emoji());
+
+        let prompt = SystemPrompt::build(WorkflowPrompt::Chat, None, &runtime);
+
+        let expected = after_shared_parts(&[
+            WORKFLOW_CHAT.trim(),
+            &runtime_section("<:nuki_wave:111>, <a:nuki_dance:222>"),
+        ]);
+        assert_eq!(prompt, expected);
+    }
+
+    #[test]
+    fn build_writes_none_when_the_server_has_no_custom_emoji() {
+        let runtime = runtime_with_emoji(Vec::new());
+
+        let prompt = SystemPrompt::build(WorkflowPrompt::Chat, None, &runtime);
+
+        let expected = after_shared_parts(&[WORKFLOW_CHAT.trim(), &runtime_section("none")]);
+        assert_eq!(prompt, expected);
+    }
+}

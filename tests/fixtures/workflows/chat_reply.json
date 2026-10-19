@@ -1,0 +1,14 @@
+{
+  "id": "gen-chat",
+  "object": "chat.completion",
+  "created": 1789000000,
+  "model": "test/model",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": { "role": "assistant", "content": "900 hours? Touch grass, then come back for hour 901." }
+    }
+  ],
+  "usage": { "prompt_tokens": 40, "completion_tokens": 14, "total_tokens": 54 }
+}

@@ -162,7 +162,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::sandbox::declarations::tool_description;
+    use crate::llm::test_support::{llm_request_bodies, mount_llm_replies, run_script_tools};
     use crate::sandbox::runtime::SandboxLimits;
     use crate::sandbox::test_support::echo_table;
     use crate::test_support::json_response;
@@ -196,14 +196,7 @@ mod tests {
 
     async fn chat_server(replies: &[&str]) -> MockServer {
         let server = MockServer::start().await;
-        for body in replies {
-            Mock::given(method("POST"))
-                .and(path("/chat/completions"))
-                .respond_with(json_response(200, body))
-                .up_to_n_times(1)
-                .mount(&server)
-                .await;
-        }
+        mount_llm_replies(&server, replies).await;
         server
     }
 
@@ -239,11 +232,6 @@ mod tests {
             .into_iter()
             .map(|json| serde_json::from_value(json).unwrap())
             .collect()
-    }
-
-    async fn first_request_body(server: &MockServer) -> Value {
-        let requests = server.received_requests().await.unwrap();
-        requests[0].body_json().unwrap()
     }
 
     #[tokio::test]
@@ -306,7 +294,7 @@ mod tests {
 
         client(&server).run(request(Some(sandbox()))).await.unwrap();
 
-        let body = first_request_body(&server).await;
+        let body = &llm_request_bodies(&server).await[0];
         assert_eq!(
             body["messages"],
             json!([
@@ -319,26 +307,7 @@ mod tests {
                 { "role": "user", "content": "Echo a = 1." }
             ])
         );
-        assert_eq!(
-            body["tools"],
-            json!([{
-                "type": "function",
-                "function": {
-                    "name": "run_script",
-                    "description": tool_description(&echo_table()),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "The body of an async JS function."
-                            }
-                        },
-                        "required": ["code"]
-                    }
-                }
-            }])
-        );
+        assert_eq!(body["tools"], run_script_tools());
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -390,7 +359,7 @@ mod tests {
                 severity: None,
             }
         );
-        let body = first_request_body(&server).await;
+        let body = &llm_request_bodies(&server).await[0];
         assert_eq!(
             body["messages"],
             json!([

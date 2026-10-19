@@ -6,3 +6,5 @@ pub mod handler;
 pub mod history;
 pub mod modality;
 pub mod reply;
+#[cfg(test)]
+pub(crate) mod test_support;

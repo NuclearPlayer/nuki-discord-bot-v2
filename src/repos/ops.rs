@@ -93,7 +93,7 @@ pub async fn git_log(
 ) -> Result<Vec<Commit>, RepoError> {
     let limit = params.limit.to_string();
     let grep = params.grep.map(|grep| format!("--grep={grep}"));
-    let args: Vec<&str> = ["log", "-n", &limit, LOG_FORMAT]
+    let args: Vec<&str> = ["log", "-E", "-n", &limit, LOG_FORMAT]
         .into_iter()
         .chain(grep.as_deref())
         .chain(["--end-of-options"])
@@ -215,7 +215,9 @@ mod tests {
 
     use super::*;
     use crate::repos::catalog::CatalogEntry;
-    use crate::repos::test_support::{Origin, TestRepos, test_repo_id};
+    use crate::repos::test_support::{
+        Origin, TestRepos, commit_1, commit_2, commit_3, test_repo_id,
+    };
 
     fn params<P: DeserializeOwned>(value: Value) -> P {
         serde_json::from_value(value).unwrap()
@@ -223,34 +225,6 @@ mod tests {
 
     fn to_json(value: impl Serialize) -> Value {
         serde_json::to_value(value).unwrap()
-    }
-
-    fn commit_json(hash: &str, date: &str, subject: &str) -> Value {
-        json!({ "hash": hash, "author": "Test Author", "date": date, "subject": subject })
-    }
-
-    fn commit_1() -> Value {
-        commit_json(
-            "321254eb140ee36a0943df0de59adff028cebaac",
-            "2026-01-01T10:00:00Z",
-            "Add the player",
-        )
-    }
-
-    fn commit_2() -> Value {
-        commit_json(
-            "9fc4168ad34755f9a57e44464bcd2fd4558642ff",
-            "2026-01-02T10:00:00Z",
-            "Add the guide",
-        )
-    }
-
-    fn commit_3() -> Value {
-        commit_json(
-            "aec79b59c2b59a6335b1b17f2dfe5d78ff92764f",
-            "2026-01-03T10:00:00Z",
-            "Add stop to the player",
-        )
     }
 
     #[tokio::test]
@@ -480,12 +454,12 @@ mod tests {
 
         let commits = git_log(
             &repos.manager,
-            params(json!({ "repo": "test/origin", "grep": "guide" })),
+            params(json!({ "repo": "test/origin", "grep": "guide|stop" })),
         )
         .await
         .unwrap();
 
-        assert_eq!(to_json(commits), json!([commit_2()]));
+        assert_eq!(to_json(commits), json!([commit_3(), commit_2()]));
     }
 
     #[tokio::test]

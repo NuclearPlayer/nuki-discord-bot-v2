@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use crate::repos::catalog::{CatalogEntry, RepoCatalog, RepoId};
@@ -127,6 +128,35 @@ impl Origin {
     pub(crate) fn rev_parse(&self, rev: &str) -> String {
         rev_parse(self.path(), rev)
     }
+}
+
+/// A commit of `Origin::create`, as the JSON of a `Commit`.
+fn commit_json(hash: &str, date: &str, subject: &str) -> Value {
+    json!({ "hash": hash, "author": "Test Author", "date": date, "subject": subject })
+}
+
+pub(crate) fn commit_1() -> Value {
+    commit_json(
+        "321254eb140ee36a0943df0de59adff028cebaac",
+        "2026-01-01T10:00:00Z",
+        "Add the player",
+    )
+}
+
+pub(crate) fn commit_2() -> Value {
+    commit_json(
+        "9fc4168ad34755f9a57e44464bcd2fd4558642ff",
+        "2026-01-02T10:00:00Z",
+        "Add the guide",
+    )
+}
+
+pub(crate) fn commit_3() -> Value {
+    commit_json(
+        "aec79b59c2b59a6335b1b17f2dfe5d78ff92764f",
+        "2026-01-03T10:00:00Z",
+        "Add stop to the player",
+    )
 }
 
 pub(crate) struct TestRepos {

@@ -1,5 +1,5 @@
 {
-  "model": "~typesafe/jev-latest",
+  "model": "liquid/d1-ultra",
   "state": {
     "conversation": [
       "bob: playback stops after one track",

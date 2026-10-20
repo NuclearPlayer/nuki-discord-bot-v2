@@ -9,7 +9,7 @@ use crate::stats::duration_ms;
 use crate::stats::event::{Event, JevCall, JevPurpose};
 use crate::stats::recorder::RunStats;
 
-pub const JEV_MODEL: &str = "~typesafe/jev-latest";
+pub const JEV_MODEL: &str = "liquid/d1-ultra";
 
 /// The path of the Decisions API, after the base URL.
 pub(crate) const DECISIONS_PATH: &str = "/api/alpha/decisions";

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use crate::github::client::GitHubClient;
-use crate::repos::catalog::NUCLEAR_REPO;
+use crate::repos::catalog::RepoId;
 use crate::sandbox::operation::{Operation, OperationTable, Param};
 
 const NAMESPACE: &str = "github";
@@ -18,7 +18,7 @@ const DISCUSSIONS_TYPE: &str = "{ number: number; title: string; url: string; cr
 #[serde(rename_all = "camelCase")]
 struct ListReleasesParams {
     #[serde(default = "default_repo")]
-    repo: String,
+    repo: RepoId,
     #[serde(default = "default_limit")]
     limit: u32,
 }
@@ -29,13 +29,13 @@ struct ListReleasesParams {
 struct SearchParams {
     query: String,
     #[serde(default = "default_repo")]
-    repo: String,
+    repo: RepoId,
     #[serde(default = "default_limit")]
     limit: u32,
 }
 
-fn default_repo() -> String {
-    NUCLEAR_REPO.to_owned()
+fn default_repo() -> RepoId {
+    RepoId::nuclear()
 }
 
 fn default_limit() -> u32 {
@@ -126,7 +126,7 @@ fn limit_param() -> Param {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use wiremock::matchers::{body_partial_json, method, path, query_param};
+    use wiremock::matchers::{any, body_partial_json, method, path, query_param};
     use wiremock::{Mock, MockServer};
 
     use super::*;
@@ -176,6 +176,51 @@ mod tests {
                 },
             ]))
         );
+    }
+
+    async fn expect_no_request(server: &MockServer) {
+        Mock::given(any())
+            .respond_with(json_response(200, "[]"))
+            .expect(0)
+            .mount(server)
+            .await;
+    }
+
+    /// Calls `github.{operation}` with `repo` and asserts that it rejects the
+    /// parameters before any request goes out. `listReleases` ignores `query`.
+    async fn assert_rejects_repo(operation: &str, repo: &str) {
+        let server = MockServer::start().await;
+        expect_no_request(&server).await;
+        let code = format!(
+            "try {{ await github.{operation}({{ query: 'x', repo: '{repo}' }}); }} catch (e) {{ return e.message; }}"
+        );
+
+        let outcome = run(&server, &code).await;
+
+        let expected = format!(
+            "invalid parameters: expected owner/name with only letters, digits, '.', '-' or '_', got {repo:?}"
+        );
+        assert_eq!(outcome, value(json!(expected)));
+    }
+
+    #[tokio::test]
+    async fn scripts_cannot_list_releases_of_a_repository_with_a_path_after_the_name() {
+        assert_rejects_repo("listReleases", "nukeop/nuclear/../../../user?x=").await;
+    }
+
+    #[tokio::test]
+    async fn scripts_cannot_search_pull_requests_of_a_double_dot_repository() {
+        assert_rejects_repo("searchPullRequests", "nukeop/..").await;
+    }
+
+    #[tokio::test]
+    async fn scripts_cannot_list_releases_of_a_name_with_a_question_mark() {
+        assert_rejects_repo("listReleases", "nukeop/nuclear?x=").await;
+    }
+
+    #[tokio::test]
+    async fn scripts_cannot_search_discussions_of_a_name_with_a_space() {
+        assert_rejects_repo("searchDiscussions", "nukeop/nuclear is:issue").await;
     }
 
     #[tokio::test]

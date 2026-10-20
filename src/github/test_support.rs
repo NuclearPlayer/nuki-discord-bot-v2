@@ -13,7 +13,7 @@ pub(crate) const DISCUSSIONS: &str = include_str!("../../tests/fixtures/github/d
 pub(crate) fn client_for(server: &MockServer) -> GitHubClient {
     GitHubClient::new(
         "test-token".to_string(),
-        server.uri(),
-        format!("{}/graphql", server.uri()),
+        server.uri().parse().unwrap(),
+        format!("{}/graphql", server.uri()).parse().unwrap(),
     )
 }

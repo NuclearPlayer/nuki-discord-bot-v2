@@ -1,5 +1,5 @@
 use reqwest::header::{ACCEPT, USER_AGENT};
-use reqwest::{Method, Request, RequestBuilder};
+use reqwest::{Method, Request, RequestBuilder, Url};
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use thiserror::Error;
@@ -8,6 +8,7 @@ use crate::github::types::{
     ApiErrorBody, Discussion, DiscussionSearchData, GraphQlResponse, IssueResponse, OrgRepo,
     PullRequest, Release, ReleaseResponse, RepoResponse, SearchResponse,
 };
+use crate::repos::catalog::RepoId;
 
 const GITHUB_MEDIA_TYPE: &str = "application/vnd.github+json";
 const BOT_USER_AGENT: &str = "nuki-discord-bot";
@@ -26,12 +27,12 @@ pub enum GitHubError {
 pub struct GitHubClient {
     http: reqwest::Client,
     token: String,
-    api_base: String,
-    graphql_url: String,
+    api_base: Url,
+    graphql_url: Url,
 }
 
 impl GitHubClient {
-    pub fn new(token: String, api_base: String, graphql_url: String) -> Self {
+    pub fn new(token: String, api_base: Url, graphql_url: Url) -> Self {
         Self {
             http: reqwest::Client::new(),
             token,
@@ -44,7 +45,7 @@ impl GitHubClient {
     pub async fn list_org_repos(&self, org: &str) -> Result<Vec<OrgRepo>, GitHubError> {
         let repos: Vec<RepoResponse> = self
             .get(
-                &format!("/orgs/{org}/repos"),
+                &["orgs", org, "repos"],
                 &[("per_page", "100"), ("type", "public")],
             )
             .await?;
@@ -55,11 +56,15 @@ impl GitHubClient {
             .collect())
     }
 
-    pub async fn list_releases(&self, repo: &str, limit: u32) -> Result<Vec<Release>, GitHubError> {
+    pub async fn list_releases(
+        &self,
+        repo: &RepoId,
+        limit: u32,
+    ) -> Result<Vec<Release>, GitHubError> {
         let per_page = limit.to_string();
         let releases: Vec<ReleaseResponse> = self
             .get(
-                &format!("/repos/{repo}/releases"),
+                &["repos", repo.owner(), repo.name(), "releases"],
                 &[("per_page", &per_page)],
             )
             .await?;
@@ -68,7 +73,7 @@ impl GitHubClient {
 
     pub async fn search_pull_requests(
         &self,
-        repo: &str,
+        repo: &RepoId,
         query: &str,
         limit: u32,
     ) -> Result<Vec<PullRequest>, GitHubError> {
@@ -76,7 +81,7 @@ impl GitHubClient {
         let per_page = limit.to_string();
         let search: SearchResponse<IssueResponse> = self
             .get(
-                "/search/issues",
+                &["search", "issues"],
                 &[("q", &search_text), ("per_page", &per_page)],
             )
             .await?;
@@ -85,7 +90,7 @@ impl GitHubClient {
 
     pub async fn search_discussions(
         &self,
-        repo: &str,
+        repo: &RepoId,
         query: &str,
         limit: u32,
     ) -> Result<Vec<Discussion>, GitHubError> {
@@ -97,7 +102,7 @@ impl GitHubClient {
             },
         });
         let request = self
-            .request(Method::POST, &self.graphql_url)
+            .request(Method::POST, self.graphql_url.clone())
             .json(&body)
             .build()?;
         let response: GraphQlResponse<DiscussionSearchData> = self.execute(request).await?;
@@ -106,17 +111,29 @@ impl GitHubClient {
 
     async fn get<T: DeserializeOwned>(
         &self,
-        path: &str,
+        segments: &[&str],
         query: &[(&str, &str)],
     ) -> Result<T, GitHubError> {
         let request = self
-            .request(Method::GET, &format!("{}{path}", self.api_base))
+            .request(Method::GET, self.api_url(segments))
             .query(query)
             .build()?;
         self.execute(request).await
     }
 
-    fn request(&self, method: Method, url: &str) -> RequestBuilder {
+    /// The API base with `segments` added. Each segment is escaped, so a `/` or a `?`
+    /// in it cannot change the path or the query. `path_segments_mut().extend` drops
+    /// a `.` or `..` segment instead of escaping it; `RepoId` rejects both.
+    fn api_url(&self, segments: &[&str]) -> Url {
+        let mut url = self.api_base.clone();
+        url.path_segments_mut()
+            .expect("the GitHub API base is an http or https URL")
+            .pop_if_empty()
+            .extend(segments);
+        url
+    }
+
+    fn request(&self, method: Method, url: Url) -> RequestBuilder {
         self.http
             .request(method, url)
             .bearer_auth(&self.token)
@@ -169,6 +186,10 @@ mod tests {
         text.parse().unwrap()
     }
 
+    fn nuclear() -> RepoId {
+        RepoId::parse("nukeop/nuclear").unwrap()
+    }
+
     #[tokio::test]
     async fn list_org_repos_returns_only_repositories_that_are_not_archived() {
         let server = MockServer::start().await;
@@ -210,6 +231,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_question_mark_in_a_path_segment_is_escaped() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/orgs/Nuclear%3Fx=/repos"))
+            .and(query_param("per_page", "100"))
+            .and(query_param("type", "public"))
+            .respond_with(json_response(200, "[]"))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let repos = client_for(&server)
+            .list_org_repos("Nuclear?x=")
+            .await
+            .unwrap();
+
+        assert_eq!(repos, vec![]);
+    }
+
+    #[tokio::test]
     async fn list_releases_returns_the_releases() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
@@ -220,7 +261,7 @@ mod tests {
             .await;
 
         let releases = client_for(&server)
-            .list_releases("nukeop/nuclear", 2)
+            .list_releases(&nuclear(), 2)
             .await
             .unwrap();
 
@@ -266,7 +307,7 @@ mod tests {
             .await;
 
         client_for(&server)
-            .search_pull_requests("nukeop/nuclear", "playlists", 2)
+            .search_pull_requests(&nuclear(), "playlists", 2)
             .await
             .unwrap();
     }
@@ -281,7 +322,7 @@ mod tests {
             .await;
 
         let pull_requests = client_for(&server)
-            .search_pull_requests("nukeop/nuclear", "playlists", 2)
+            .search_pull_requests(&nuclear(), "playlists", 2)
             .await
             .unwrap();
 
@@ -326,7 +367,7 @@ mod tests {
             .await;
 
         client_for(&server)
-            .search_discussions("nukeop/nuclear", "\"previous\" button", 2)
+            .search_discussions(&nuclear(), "\"previous\" button", 2)
             .await
             .unwrap();
     }
@@ -341,7 +382,7 @@ mod tests {
             .await;
 
         let discussions = client_for(&server)
-            .search_discussions("nukeop/nuclear", "spotify", 2)
+            .search_discussions(&nuclear(), "spotify", 2)
             .await
             .unwrap();
 
@@ -384,7 +425,7 @@ mod tests {
             .await;
 
         let error = client_for(&server)
-            .search_discussions("nukeop/nuclear", "spotify", 101)
+            .search_discussions(&nuclear(), "spotify", 101)
             .await
             .unwrap_err();
 
@@ -410,7 +451,7 @@ mod tests {
             .await;
 
         let error = client_for(&server)
-            .list_releases("nukeop/nuclear", 2)
+            .list_releases(&nuclear(), 2)
             .await
             .unwrap_err();
 
@@ -443,9 +484,9 @@ mod tests {
             .await;
         let client = client_for(&server);
 
-        client.list_releases("nukeop/nuclear", 2).await.unwrap();
+        client.list_releases(&nuclear(), 2).await.unwrap();
         client
-            .search_discussions("nukeop/nuclear", "spotify", 2)
+            .search_discussions(&nuclear(), "spotify", 2)
             .await
             .unwrap();
     }

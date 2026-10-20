@@ -5,32 +5,51 @@ use serde::{Deserialize, Serialize};
 /// The repository of the Nuclear player. The bot clones it at start.
 pub const NUCLEAR_REPO: &str = "nukeop/nuclear";
 
-/// A GitHub repository, written as `owner/name`.
+/// A GitHub repository, written as `owner/name`. The owner and the name each contain
+/// only `[A-Za-z0-9._-]`, and are not empty, `.`, or `..`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct RepoId {
-    pub owner: String,
-    pub name: String,
+    owner: String,
+    name: String,
 }
 
 #[derive(Debug, PartialEq, thiserror::Error)]
-#[error("expected a repository in the form owner/name, got {0:?}")]
+#[error("expected owner/name with only letters, digits, '.', '-' or '_', got {0:?}")]
 pub struct ParseRepoIdError(pub String);
 
 impl RepoId {
     pub fn parse(text: &str) -> Result<RepoId, ParseRepoIdError> {
         match text.split_once('/') {
-            Some((owner, name)) if is_valid_id(owner, name) => Ok(RepoId {
+            Some((owner, name)) if is_segment(owner) && is_segment(name) => Ok(RepoId {
                 owner: owner.to_string(),
                 name: name.to_string(),
             }),
             _ => Err(ParseRepoIdError(text.to_string())),
         }
     }
+
+    /// The repository of the Nuclear player, `NUCLEAR_REPO`.
+    pub fn nuclear() -> RepoId {
+        RepoId::parse(NUCLEAR_REPO).expect("NUCLEAR_REPO is a valid repository")
+    }
+
+    pub fn owner(&self) -> &str {
+        &self.owner
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 }
 
-fn is_valid_id(owner: &str, name: &str) -> bool {
-    !owner.is_empty() && !name.is_empty() && !name.contains('/')
+fn is_segment(text: &str) -> bool {
+    !matches!(text, "" | "." | "..") && text.chars().all(is_name_char)
+}
+
+/// The characters accepted in an owner or a repository name.
+fn is_name_char(character: char) -> bool {
+    character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_')
 }
 
 impl fmt::Display for RepoId {
@@ -86,20 +105,53 @@ mod tests {
 
     #[test]
     fn parse_reads_owner_and_name() {
-        assert_eq!(
-            RepoId::parse("nukeop/nuclear"),
-            Ok(RepoId {
-                owner: "nukeop".to_string(),
-                name: "nuclear".to_string(),
-            })
-        );
+        let id = RepoId::parse("nukeop/nuclear").unwrap();
+
+        assert_eq!((id.owner(), id.name()), ("nukeop", "nuclear"));
     }
 
     #[test]
-    fn parse_rejects_text_without_a_slash() {
+    fn parse_accepts_dots_dashes_and_underscores_in_a_segment() {
+        let id = RepoId::parse("Nuclear-Player_2/nuclear.js").unwrap();
+
+        assert_eq!((id.owner(), id.name()), ("Nuclear-Player_2", "nuclear.js"));
+    }
+
+    #[test]
+    fn parse_rejects_text_that_is_not_two_valid_segments() {
+        let inputs = [
+            "nuclear",
+            "nukeop/nuclear/releases",
+            "/nuclear",
+            "nukeop/",
+            "./nuclear",
+            "nukeop/.",
+            "../nuclear",
+            "nukeop/..",
+            "nukeop/nuclear is:issue",
+            "repo:nukeop/nuclear",
+            "nukeop/nuclear?x=",
+        ];
+
+        let results: Vec<_> = inputs
+            .iter()
+            .map(|text| (*text, RepoId::parse(text)))
+            .collect();
+
+        let expected: Vec<_> = inputs
+            .iter()
+            .map(|text| (*text, Err(ParseRepoIdError(text.to_string()))))
+            .collect();
+        assert_eq!(results, expected);
+    }
+
+    #[test]
+    fn a_parse_error_tells_the_accepted_characters() {
+        let error = RepoId::parse("nukeop/nuclear?x=").unwrap_err();
+
         assert_eq!(
-            RepoId::parse("nuclear"),
-            Err(ParseRepoIdError("nuclear".to_string()))
+            error.to_string(),
+            "expected owner/name with only letters, digits, '.', '-' or '_', got \"nukeop/nuclear?x=\""
         );
     }
 }

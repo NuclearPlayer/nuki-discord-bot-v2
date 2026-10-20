@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
+use reqwest::Url;
 use serenity::http::Http;
 use serenity::model::id::GuildId;
 
@@ -66,10 +67,15 @@ impl App {
     pub async fn build(config: Config) -> anyhow::Result<Arc<App>> {
         let store = open_store(&config).await?;
 
+        let api_base = Url::parse(GITHUB_API_BASE)
+            .with_context(|| format!("could not parse the GitHub API base {GITHUB_API_BASE}"))?;
+        let graphql_url = Url::parse(GITHUB_GRAPHQL_URL).with_context(|| {
+            format!("could not parse the GitHub GraphQL URL {GITHUB_GRAPHQL_URL}")
+        })?;
         let github = Arc::new(GitHubClient::new(
             config.github_token.clone(),
-            GITHUB_API_BASE.to_string(),
-            GITHUB_GRAPHQL_URL.to_string(),
+            api_base,
+            graphql_url,
         ));
         let org_repos = github
             .list_org_repos(GITHUB_ORG)
@@ -80,7 +86,7 @@ impl App {
             catalog(org_repos)?,
         ));
         repos
-            .ensure_cloned(&RepoId::parse(NUCLEAR_REPO)?)
+            .ensure_cloned(&RepoId::nuclear())
             .await
             .with_context(|| format!("could not clone {NUCLEAR_REPO}"))?;
 
@@ -172,7 +178,7 @@ async fn open_store(config: &Config) -> anyhow::Result<Store> {
 /// `nukeop/nuclear` first, then the repositories of the organization.
 fn catalog(org_repos: Vec<OrgRepo>) -> anyhow::Result<RepoCatalog> {
     let nuclear = CatalogEntry {
-        id: RepoId::parse(NUCLEAR_REPO)?,
+        id: RepoId::nuclear(),
         description: None,
         clone_url: format!("https://github.com/{NUCLEAR_REPO}.git"),
     };

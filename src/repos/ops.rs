@@ -230,10 +230,7 @@ mod tests {
     #[tokio::test]
     async fn list_repos_returns_the_catalog_entries_with_their_clone_state() {
         let repos = TestRepos::with_entries(vec![CatalogEntry {
-            id: RepoId {
-                owner: "test".to_string(),
-                name: "absent".to_string(),
-            },
+            id: RepoId::parse("test/absent").unwrap(),
             description: None,
             clone_url: "/nowhere/absent".to_string(),
         }]);

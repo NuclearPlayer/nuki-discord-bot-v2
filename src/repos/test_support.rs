@@ -10,10 +10,7 @@ use crate::repos::git::isolated_git;
 use crate::repos::manager::RepoManager;
 
 pub(crate) fn test_repo_id() -> RepoId {
-    RepoId {
-        owner: "test".to_string(),
-        name: "origin".to_string(),
-    }
+    RepoId::parse("test/origin").unwrap()
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {

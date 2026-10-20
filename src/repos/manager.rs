@@ -55,7 +55,9 @@ impl RepoManager {
     }
 
     pub fn path_of(&self, id: &RepoId) -> PathBuf {
-        self.root.join(&id.owner).join(format!("{}.git", id.name))
+        self.root
+            .join(id.owner())
+            .join(format!("{}.git", id.name()))
     }
 
     pub fn is_cloned(&self, id: &RepoId) -> bool {
@@ -213,10 +215,7 @@ mod tests {
     #[tokio::test]
     async fn ensure_cloned_returns_unknown_repo_for_a_repository_outside_the_catalog() {
         let repos = TestRepos::new();
-        let unknown = RepoId {
-            owner: "test".to_string(),
-            name: "unknown".to_string(),
-        };
+        let unknown = RepoId::parse("test/unknown").unwrap();
 
         let result = repos.manager.ensure_cloned(&unknown).await;
 
@@ -240,10 +239,7 @@ mod tests {
     async fn a_failed_clone_leaves_no_repository() {
         let missing_origin = TempDir::new().unwrap().path().join("missing");
         let clone_url = missing_origin.to_str().unwrap().to_string();
-        let id = RepoId {
-            owner: "test".to_string(),
-            name: "missing".to_string(),
-        };
+        let id = RepoId::parse("test/missing").unwrap();
         let repos = TestRepos::with_entries(vec![CatalogEntry {
             id: id.clone(),
             description: None,

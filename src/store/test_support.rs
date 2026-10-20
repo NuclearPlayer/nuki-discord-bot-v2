@@ -13,7 +13,7 @@ pub(crate) struct EventRow {
     pub data: serde_json::Value,
 }
 
-/// All rows of `events`, sorted by `id`.
+/// Returns all rows of `events`, sorted by `id`.
 pub(crate) async fn all_events(store: &Store) -> Vec<EventRow> {
     let rows = call(&store.conn, |c| {
         let mut statement = c.prepare(

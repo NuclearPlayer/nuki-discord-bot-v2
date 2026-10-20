@@ -21,10 +21,11 @@ use crate::stats::recorder::RunStats;
 /// The production base URL of the OpenRouter API.
 pub const OPENROUTER_BASE_URL: &str = OPENROUTER.base_url;
 
-/// Rig counts model calls, not tool calls: 50 calls of `run_script` and one final answer.
+/// Rig counts the model calls, not the tool calls: 50 calls of `run_script` and one final
+/// answer.
 const MAX_MODEL_CALLS: usize = 51;
 
-/// The name of the agent in the logs of rig.
+/// The agent's name in rig's logs.
 const AGENT_NAME: &str = "Nuki";
 
 #[derive(Debug, Error)]
@@ -71,7 +72,8 @@ impl LlmClient {
         }
     }
 
-    /// Runs one LLM turn: the model can call `run_script` up to 50 times, then it must answer.
+    /// Runs one LLM turn. The model can call `run_script` 50 times at most. Then the model must
+    /// answer.
     pub async fn run(&self, request: TurnRequest) -> Result<TurnResult, LlmError> {
         tracing::info!(model = request.model_id, "LLM turn");
         let agent = self.agent(&request);
@@ -130,9 +132,9 @@ impl LlmClient {
     }
 }
 
-/// Serializes the messages that a run added after the prompt, without the final answer.
-/// `messages` starts with the prompt. Rig leaves a blank final answer out, so the last
-/// message can also be a tool result.
+/// Serializes the messages that the run added after the prompt, without the final answer.
+/// `messages` starts with the prompt. The last message can also be a tool result, because rig
+/// does not add a blank final answer.
 fn tool_turn(prompt: &Message, messages: &[Message]) -> Result<Vec<Value>, LlmError> {
     let added = match messages.split_first() {
         Some((first, added)) if first == prompt => added,

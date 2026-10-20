@@ -72,7 +72,8 @@ impl Classifier {
     }
 }
 
-/// The `category` question. A direct message always gets a reply, so its question has no `ignore` option.
+/// For a direct message, the question has no `ignore` option, because Nuki always replies to a
+/// direct message.
 fn category_question(trigger: ClassifiedTrigger) -> Question {
     let question = category();
     let criteria = question
@@ -153,7 +154,8 @@ mod tests {
         })
     }
 
-    /// A `category` choice answer whose choice and confidence are those of the top probability.
+    /// Returns a `category` choice answer. The choice and the confidence come from the top
+    /// probability.
     fn answer_with(probabilities: &[(&str, f64)]) -> Value {
         let (choice, confidence) = probabilities
             .iter()

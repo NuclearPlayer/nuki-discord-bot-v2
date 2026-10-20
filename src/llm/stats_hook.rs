@@ -33,8 +33,8 @@ impl StatsHook {
         }
     }
 
-    /// The time since the request of `id` started. `on_dispatch` keeps the start of each
-    /// completion, so each completion outcome has one.
+    /// Returns the time since the request `id` started. Each completion outcome has a start,
+    /// because `on_dispatch` keeps the start of each completion.
     fn elapsed(&self, id: EffectId) -> Duration {
         self.started
             .lock()
@@ -44,7 +44,7 @@ impl StatsHook {
             .elapsed()
     }
 
-    /// The `llm.call` event of the model call `turn` (one-based) of the run.
+    /// Returns the `llm.call` event of the model call `turn` (one-based) in the run.
     fn call(&self, turn: usize, elapsed: Duration, response: &CompletionResponse) -> LlmCall {
         let usage = response.usage;
         LlmCall {
@@ -99,16 +99,17 @@ fn is_completion(kind: &EffectKind) -> bool {
     matches!(kind, EffectKind::Completion { .. })
 }
 
-/// Rig fills the parts of a cost only for an estimate from its price list. This assumes that a
-/// cost that the provider reports has only a total, as OpenRouter's has.
+/// Returns `true` if rig estimated the cost. Rig fills the parts of a cost only for an estimate
+/// from its price list. If the provider reports a cost, this function expects only a total, as
+/// in OpenRouter's cost.
 fn is_estimated(cost: &Cost) -> bool {
     [cost.input, cost.output, cost.cache_read, cost.cache_write]
         .iter()
         .any(Option::is_some)
 }
 
-/// The snake-case name of `reason`, for example `tool_calls`, or the name of the provider for a
-/// reason outside the rig vocabulary.
+/// Returns the snake-case name of `reason`, for example `tool_calls`. If the reason is not in
+/// the rig vocabulary, returns the provider's name for the reason.
 fn finish_reason_name(reason: FinishReason) -> String {
     match reason {
         FinishReason::Stop => "stop".to_string(),

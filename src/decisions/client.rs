@@ -24,7 +24,7 @@ pub enum DecisionError {
     Json(#[from] serde_json::Error),
 }
 
-/// A response of Jev, with the JSON of its answers as Jev sent them.
+/// Jev's response, with its answers in the raw JSON that Jev sent.
 struct Decided {
     response: DecisionResponse,
     raw_answers: serde_json::Value,
@@ -87,8 +87,8 @@ impl JevClient {
     }
 }
 
-/// The `jev.call` event of one call: the answers, the model, and the usage of a success, or the
-/// error of a failure.
+/// If the call succeeds, the event has the answers, the model, and the usage. If the call fails,
+/// the event has the error.
 fn jev_call(
     purpose: JevPurpose,
     questions: Vec<String>,
@@ -150,7 +150,8 @@ struct ErrorDetail {
     message: String,
 }
 
-/// Returns `error.message` of the body, or the full body when it has no such field.
+/// Returns the `error.message` field of the body. If the body does not have this field,
+/// returns the full body.
 fn error_message(body: String) -> String {
     serde_json::from_str::<ErrorBody>(&body)
         .map(|parsed| parsed.error.message)

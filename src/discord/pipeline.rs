@@ -25,7 +25,7 @@ use crate::stats::recorder::{RunStats, run_id_of_unit};
 use crate::store::intakes::IntakeKind;
 use crate::workflows::{Workflow, timed};
 
-/// The workflow name in the admin log for an error before the bot picks a workflow.
+/// The workflow name for the admin log, if an error occurs before the bot selects a workflow.
 const ROUTING: &str = "routing";
 
 /// Reads the units of the debouncer, and processes each unit in its own task.
@@ -37,8 +37,8 @@ pub fn spawn_unit_reader(app: Arc<App>, mut units: mpsc::UnboundedReceiver<Vec<M
     });
 }
 
-/// Runs the pipeline for one unit, as one run. An error goes to the admin log, and Nuki sends
-/// nothing.
+/// Runs the pipeline for one unit, as one run. If the pipeline fails, sends the error to the
+/// admin log, and Nuki sends nothing.
 pub async fn process_unit(app: Arc<App>, unit: Vec<Message>) {
     let stats = unit_run(&app, &unit);
     if let Err(failure) = handle_unit(&app, &unit, &stats).await {
@@ -48,7 +48,7 @@ pub async fn process_unit(app: Arc<App>, unit: Vec<Message>) {
     }
 }
 
-/// The recorder of the run of the unit, in the server and the channel of the unit.
+/// Returns the recorder of the unit's run, in the server and the channel of the unit.
 fn unit_run(app: &App, unit: &[Message]) -> RunStats {
     let last = last_message(unit);
     let guild_id = last
@@ -71,7 +71,7 @@ pub(super) fn last_message(unit: &[Message]) -> &Message {
     unit.last().expect("a unit has at least one message")
 }
 
-/// An error of the pipeline, with the workflow name for the admin log.
+/// A pipeline error, with the workflow name for the admin log.
 struct Failure {
     workflow: &'static str,
     error: anyhow::Error,
@@ -122,7 +122,7 @@ async fn handle_unit(app: &App, unit: &[Message], stats: &RunStats) -> Result<()
     }
 }
 
-/// Records a `message.received` event for each message of the unit, with the trigger of the unit.
+/// Records a `message.received` event for each message of the unit, with the unit's trigger.
 async fn record_received(
     stats: &RunStats,
     unit: &[Message],
@@ -140,8 +140,9 @@ async fn record_received(
     }
 }
 
-/// The managed role of Nuki in the server of the unit: the role whose bot is Nuki. Only a unit
-/// that mentions a role needs it, so the other units do not request the roles of the server.
+/// Gets Nuki's managed role in the unit's server: the role that has Nuki as its bot. Only a unit
+/// that mentions a role uses this role. For the other units, sends no request for the server's
+/// roles.
 async fn nuki_role_id(
     http: &Http,
     nuki_user_id: u64,
@@ -187,8 +188,8 @@ async fn route(
         .in_workflow(workflow)
 }
 
-/// Classifies the unit with its history, decides what to run with the chat cooldown of the
-/// channel, and logs and records the decision. A unit that runs goes back as `Routed`.
+/// Classifies the unit with its history. Decides what to run with the channel's chat cooldown,
+/// and logs and records the decision. If the unit runs, returns the unit as `Routed`.
 async fn classify(
     app: &App,
     unit: &[Message],

@@ -3,7 +3,7 @@ use chrono::{DateTime, Duration, Utc};
 use crate::store::Result;
 use crate::store::intakes::{Intake, IntakeStore};
 
-/// The open intakes whose reporter sent no message for `timeout` before `now`.
+/// Gets the open intakes with no message from the reporter for `timeout` before `now`.
 pub async fn due_intakes(
     store: &IntakeStore,
     now: DateTime<Utc>,

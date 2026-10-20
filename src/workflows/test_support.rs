@@ -35,8 +35,8 @@ pub(crate) const RUNTIME_SECTION: &str = "## Current context\n\
     Current channel: #general\n\
     Current time: 2026-10-19T12:40:00Z";
 
-/// The Jev answers for the bug fields. The answers are not in the sequence of the file, and
-/// `platform` is exactly one half.
+/// Returns Jev's answers for the bug fields. The answers are not in the file's sequence.
+/// The answer for `platform` is equal to one half.
 pub(crate) fn bug_fields_missing() -> Value {
     json!({
         "item": { "type": "noul", "noul": 0.51 },

@@ -15,7 +15,7 @@ impl SettingsStore {
         Self { conn }
     }
 
-    /// The ID of the model that an administrator selected with `/change-model`.
+    /// Returns the ID of the model that an administrator selected with `/change-model`.
     pub async fn model_id(&self) -> Result<Option<String>> {
         call(&self.conn, |c| {
             Ok(c.query_row(

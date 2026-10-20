@@ -12,7 +12,7 @@ use crate::sandbox::operation::{Operation, OperationTable, Param};
 
 const NAMESPACE: &str = "repo";
 
-/// The operations that read the local clones of the catalog repositories.
+/// Returns the operations that read the local clones of the catalog repositories.
 pub fn repo_table(manager: Arc<RepoManager>) -> OperationTable {
     OperationTable::new(vec![
         list_repos(&manager),

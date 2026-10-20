@@ -10,14 +10,15 @@ pub type Key = (u64, u64);
 
 type PendingMap<T> = Arc<Mutex<HashMap<Key, Pending<T>>>>;
 
-/// The items of one key that wait for the end of the quiet period, and the timer of that period.
+/// The items of one key that wait for the end of the quiet period, and the timer of that
+/// period.
 struct Pending<T> {
     items: Vec<T>,
     timer: JoinHandle<()>,
 }
 
-/// Collects the items of each key until the key gets no item for the quiet period.
-/// Then it sends the items of the key to the output as one unit.
+/// The debouncer that collects the items of each key. When a key gets no item for the quiet
+/// period, the debouncer sends the items of the key to the output as one unit.
 pub struct Debouncer<T> {
     quiet: Duration,
     output: mpsc::UnboundedSender<Vec<T>>,
@@ -54,16 +55,17 @@ impl<T: Send + 'static> Debouncer<T> {
         tokio::spawn(async move {
             tokio::time::sleep(quiet).await;
             if let Some(items) = take_items_of_current_timer(&pending, key) {
-                // The receiver is gone only when the bot shuts down, so the unit has no destination.
+                // The receiver closes only when the bot stops. In that case, the unit has no
+                // destination.
                 let _ = output.send(items);
             }
         })
     }
 }
 
-/// Removes the key and returns its items, if the calling task is still the timer of the key.
-/// A timer that ended while `push` held the lock cannot be aborted any more,
-/// so it must not take the items that `push` gave to the next timer.
+/// If the calling task is the current timer of the key, removes the key and returns its items.
+/// `push` cannot abort a timer that ended while `push` held the lock. That timer must not take
+/// the items that `push` gave to the next timer.
 fn take_items_of_current_timer<T>(pending: &PendingMap<T>, key: Key) -> Option<Vec<T>> {
     let mut pending = pending.lock().unwrap();
     let is_current = pending

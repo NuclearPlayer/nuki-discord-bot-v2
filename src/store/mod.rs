@@ -87,12 +87,13 @@ where
     conn.call(f).await.map_err(|error| match error {
         tokio_rusqlite::Error::Error(store_error) => store_error,
         tokio_rusqlite::Error::Close((_, close_error)) => StoreError::Database(close_error),
-        // The enum is non-exhaustive; ConnectionClosed is the only other variant in 0.8.
+        // The enum is non-exhaustive. In 0.8, ConnectionClosed is the only other variant.
         _ => StoreError::ConnectionClosed,
     })
 }
 
-/// The fixed-width RFC 3339 form, so that SQL text comparison is time comparison.
+/// Writes the time in the fixed-width RFC 3339 form. In this form, a text comparison in SQL is
+/// also a time comparison.
 fn timestamp_text(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Nanos, true)
 }

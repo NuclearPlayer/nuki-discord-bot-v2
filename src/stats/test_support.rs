@@ -9,7 +9,8 @@ const TEST_RUN_ID: &str = "unit-1";
 const TEST_GUILD_ID: u64 = 10;
 const TEST_CHANNEL_ID: u64 = 20;
 
-/// A `RunStats` on an in-memory store, with the run `unit-1`, the server 10, and the channel 20.
+/// Returns a `RunStats` on an in-memory store, with the run `unit-1`, the server 10, and the
+/// channel 20.
 pub(crate) async fn test_run() -> (Store, RunStats) {
     let store = Store::open_in_memory().await.unwrap();
     let run =
@@ -17,12 +18,12 @@ pub(crate) async fn test_run() -> (Store, RunStats) {
     (store, run)
 }
 
-/// A `RunStats` for a test that does not read the events.
+/// Returns a `RunStats` for a test that does not read the events.
 pub(crate) async fn unrecorded_run() -> RunStats {
     test_run().await.1
 }
 
-/// An event row without its time and its `duration_ms`, which a test cannot know.
+/// An event row without its time and its `duration_ms`, because a test cannot know these values.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RunEvent {
     pub kind: String,
@@ -33,7 +34,7 @@ pub(crate) struct RunEvent {
     pub data: Value,
 }
 
-/// The event of `test_run` without a user, with `kind` and `data`.
+/// Returns the event of `test_run` with `kind` and `data`, and without a user.
 pub(crate) fn run_event(kind: &str, data: Value) -> RunEvent {
     RunEvent {
         kind: kind.to_string(),
@@ -45,8 +46,8 @@ pub(crate) fn run_event(kind: &str, data: Value) -> RunEvent {
     }
 }
 
-/// All events of `store`, sorted by ID. Asserts that each event is from between `before` and
-/// `after`, and leaves out the time and the `duration_ms`.
+/// Returns all events of `store`, sorted by ID, without the time and the `duration_ms`. Asserts
+/// that the time of each event is between `before` and `after`.
 pub(crate) async fn events_between(
     store: &Store,
     before: DateTime<Utc>,
@@ -73,7 +74,7 @@ pub(crate) async fn events_between(
         .collect()
 }
 
-/// The events of `kind` in `events`.
+/// Returns the events of `kind` in `events`.
 pub(crate) fn of_kind(events: Vec<RunEvent>, kind: &str) -> Vec<RunEvent> {
     events
         .into_iter()
@@ -81,7 +82,7 @@ pub(crate) fn of_kind(events: Vec<RunEvent>, kind: &str) -> Vec<RunEvent> {
         .collect()
 }
 
-/// The `duration_ms` of the only event of `kind` in `store`.
+/// Returns the `duration_ms` of the only event of `kind` in `store`.
 pub(crate) async fn duration_of(store: &Store, kind: &str) -> u64 {
     let rows: Vec<_> = all_events(store)
         .await

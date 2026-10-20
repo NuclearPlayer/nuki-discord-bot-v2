@@ -19,7 +19,7 @@ use crate::store::intakes::Intake;
 /// Discord gives at most 100 messages in one request.
 const PAGE_SIZE: u8 = 100;
 
-/// A message that a person or a bot wrote. All other kinds are system messages.
+/// System messages are all messages that a person or a bot did not write.
 pub fn is_system(message: &Message) -> bool {
     !matches!(
         message.kind,
@@ -42,9 +42,9 @@ pub(super) fn is_thread(channel: &GuildChannel) -> bool {
     )
 }
 
-/// The `CONTEXT_MESSAGES` last messages of the channel: the history before the unit, then the
-/// unit. In a thread, the history starts with the message that started the thread, and that
-/// message has the thread header. Without a starter message, the first message has it.
+/// Gets the last `CONTEXT_MESSAGES` messages of the channel: the history before the unit, then
+/// the unit. In a thread, the history starts with the thread's starter message, and that message
+/// has the thread header. If the thread has no starter message, the first message has the header.
 pub async fn fetch_unit_context(
     app: &App,
     channel: &GuildChannel,
@@ -61,14 +61,23 @@ pub async fn fetch_unit_context(
     }
 }
 
-/// The messages of the intake, oldest first, from the first message of the unit that started it.
+/// Gets the messages of the intake, oldest first. The messages start at the first message of the
+/// unit that started the intake.
 ///
-/// In an existing thread or forum post, the intake started in the thread, so the history is the
-/// message that started the thread, then the thread messages from the first message of the unit
-/// on. A new thread is made from the last message of the unit, and has the ID of that starter
-/// message. Then the history is the earlier messages of the unit in the parent channel, the
-/// starter message, and all messages of the thread. The starter message has the thread header.
-/// Without a starter message, the first message has it.
+/// If the intake started in an existing thread or forum post, the history has these messages:
+///
+/// - the message that started the thread
+/// - the thread messages from the first message of the unit
+///
+/// If not, the bot made a new thread from the last message of the unit. The new thread has the
+/// ID of that starter message. Then the history has these messages:
+///
+/// - the earlier messages of the unit in the parent channel
+/// - the starter message
+/// - all messages of the thread
+///
+/// The starter message has the thread header. If there is no starter message, the first message
+/// has the header.
 pub async fn fetch_thread_history(
     app: &App,
     thread: &GuildChannel,
@@ -85,8 +94,8 @@ pub async fn fetch_thread_history(
     in_thread(app, thread, messages).await
 }
 
-/// The history of `messages` in `thread`, without system messages. The message that started
-/// the thread is added in its place, and has the marker that opens the thread.
+/// Returns the history of `messages` in `thread`, without system messages. Adds the thread's
+/// starter message in its place, with the marker that opens the thread.
 async fn in_thread(
     app: &App,
     thread: &GuildChannel,
@@ -105,8 +114,8 @@ async fn in_thread(
     Ok(with_opens_marker(history, thread, &parent))
 }
 
-/// `messages` with `starter` in the sequence of the IDs. A starter that `messages` already
-/// contain, the first message of a forum post, is there once.
+/// Returns `messages` and `starter`, sorted by ID. If `messages` contain the starter, for example
+/// the first message of a forum post, the result contains the starter one time.
 fn with_starter(starter: Option<Message>, messages: Vec<Message>) -> Vec<Message> {
     let mut all: Vec<Message> = starter.into_iter().chain(messages).collect();
     all.sort_by_key(|message| message.id);
@@ -115,7 +124,8 @@ fn with_starter(starter: Option<Message>, messages: Vec<Message>) -> Vec<Message
 }
 
 /// Puts the marker that opens `thread` on the starter message of `history`, in place of its
-/// `Started` marker. A history without the starter has the marker on its first message.
+/// `Started` marker. If `history` does not contain the starter, puts the marker on the first
+/// message.
 fn with_opens_marker(
     history: Vec<ResolvedMessage>,
     thread: &GuildChannel,
@@ -147,7 +157,7 @@ fn with_opens_marker(
         .collect()
 }
 
-/// The `count` messages before `message_id`, oldest first, without system messages.
+/// Gets the `count` messages before `message_id`, oldest first, without system messages.
 async fn messages_before(
     app: &App,
     channel_id: ChannelId,
@@ -171,7 +181,8 @@ async fn messages_before(
         .collect())
 }
 
-/// The messages of a channel from `since` on, oldest first, page by page from the newest.
+/// Gets the channel's messages from `since`, oldest first. Reads the channel page by page, from
+/// the newest message.
 async fn messages_since(
     app: &App,
     channel_id: ChannelId,
@@ -195,9 +206,10 @@ async fn messages_since(
     Ok(newest_first)
 }
 
-/// The message that started `thread`. It has the ID of the thread. A thread made from a message
-/// has that message in the parent channel, and a forum post has it in the post. A deleted
-/// starter message, or a thread made without a message, gives `None`.
+/// Gets the message that started `thread`. The starter message has the thread's ID. If someone
+/// made the thread from a message, that message is in the parent channel. If the thread is a
+/// forum post, the message is in the post. If the starter message was deleted, or someone made
+/// the thread without a message, returns `None`.
 async fn starter_message(
     http: &Http,
     thread: &GuildChannel,
@@ -216,16 +228,17 @@ async fn starter_message(
     }
 }
 
-/// The messages of the parent channel from the first message of the unit that started the
-/// intake to the message before the starter message. The thread is made from the last message
-/// of that unit, so the earlier messages of the unit stay in the parent channel.
+/// Gets the parent channel's messages from the first message of the unit that started the
+/// intake, to the message before the starter message. The earlier messages of the unit stay in
+/// the parent channel, because the bot makes the thread from the last message of that unit.
 async fn origin_messages(app: &App, intake: &Intake) -> anyhow::Result<Vec<Message>> {
     let origin_id = MessageId::new(intake.origin_message_id);
     let starter_id = MessageId::new(intake.thread_id);
     if origin_id >= starter_id {
         return Ok(Vec::new());
     }
-    // A unit is a few messages, so one page is enough. A unit of more than 100 messages loses its oldest messages.
+    // One page is sufficient, because a unit is short. If a unit has more than 100 messages,
+    // the history does not contain the oldest messages of the unit.
     let newest_first = ChannelId::new(intake.origin_channel_id)
         .messages(
             &app.http,
@@ -240,9 +253,9 @@ async fn origin_messages(app: &App, intake: &Intake) -> anyhow::Result<Vec<Messa
     Ok(in_range)
 }
 
-/// Maps the messages to the form of the context builder, with the display name and the roles of
-/// each author in the server `guild_id`, and the attachments in the input modalities of the
-/// active model.
+/// Maps the messages to the form of the context builder. Adds the display name and the roles of
+/// each author in the server `guild_id`. Resolves the attachments for the active model's input
+/// modalities.
 async fn resolve(
     app: &App,
     guild_id: GuildId,
@@ -276,8 +289,8 @@ async fn resolve(
     Ok(try_join_all(resolved).await?)
 }
 
-/// The thread that `message` started, from the `thread` object that Discord gives on a starter
-/// message.
+/// Returns the thread that `message` started. Reads the thread from the `thread` object that
+/// Discord gives on a starter message.
 fn started_marker(message: &Message) -> Option<ThreadMarker> {
     message.thread.as_ref().map(|thread| ThreadMarker::Started {
         name: thread.name.clone(),
@@ -285,14 +298,14 @@ fn started_marker(message: &Message) -> Option<ThreadMarker> {
     })
 }
 
-/// The `message_count` of the thread. Discord does not count the starter message. A thread
-/// without the field has no replies.
+/// Returns the thread's `message_count`. Discord does not count the starter message. If the
+/// thread does not have the field, the thread has no replies.
 fn reply_count(thread: &GuildChannel) -> u32 {
     thread.message_count.unwrap_or(0)
 }
 
-/// The input modalities that OpenRouter lists now for the active model. Messages without
-/// attachments do not need them, so then the bot does not ask OpenRouter.
+/// Gets the input modalities that OpenRouter lists at this time for the active model. If no
+/// message has an attachment, returns no modalities and sends no request to OpenRouter.
 async fn input_modalities(app: &App, messages: &[ChatMessage]) -> anyhow::Result<Vec<String>> {
     if messages
         .iter()

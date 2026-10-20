@@ -14,7 +14,7 @@ use crate::stats::recorder::RunStats;
 
 const RUN_SCRIPT: &str = "run_script";
 
-/// Makes the `run_script` tool, which runs the code of the model in `sandbox` and records each
+/// Makes the `run_script` tool. The tool runs the model's code in `sandbox`, and records each
 /// script as a `tool.call` event.
 pub fn run_script_tool(sandbox: Arc<Sandbox>, stats: RunStats) -> DynamicTool {
     let name = ToolName::new(RUN_SCRIPT).expect("the tool name is not empty");
@@ -38,8 +38,9 @@ struct ScriptArgs {
     code: String,
 }
 
-/// Runs the script of a tool call. A script error goes back to the model in the result, not as a
-/// tool error. Arguments that do not parse are a tool error, and no script runs.
+/// Runs the script of a tool call. If the script fails, gives the error to the model in the
+/// result, not as a tool error. If the arguments do not parse, returns a tool error and runs no
+/// script.
 async fn run_script(
     sandbox: &Sandbox,
     stats: &RunStats,
@@ -75,7 +76,8 @@ async fn run_script(
     Ok(ToolOutput::text(result))
 }
 
-/// The `tool.call` of a call whose arguments do not parse: no code ran and no result exists.
+/// Returns the `tool.call` for a call with arguments that do not parse. No code ran, and no
+/// result exists.
 fn invalid_arguments_call(error: String) -> ToolCall {
     ToolCall {
         code: String::new(),

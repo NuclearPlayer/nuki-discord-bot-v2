@@ -1,4 +1,4 @@
-//! The usage events of the message pipeline, built from the messages and the routing.
+//! Builds the pipeline's usage events from the messages and the routing.
 
 use serenity::model::channel::{Attachment as DiscordAttachment, Message};
 
@@ -7,7 +7,7 @@ use crate::routing::dispatch::Decision;
 use crate::routing::trigger::{MessageFacts, Trigger};
 use crate::stats::event::{Attachment, MessageReceived, UnitRouted};
 
-/// The `message.received` event of a message with `facts`, in a unit with `trigger`.
+/// Returns the `message.received` event for a message with `facts`, in a unit with `trigger`.
 pub(crate) fn message_received(
     message: &Message,
     facts: &MessageFacts,
@@ -33,7 +33,7 @@ fn attachment_of(attachment: &DiscordAttachment) -> Attachment {
     }
 }
 
-/// The `unit.routed` event of a unit of `message_count` messages.
+/// Returns the `unit.routed` event for a unit of `message_count` messages.
 pub(crate) fn unit_routed(
     message_count: usize,
     classification: &Classification,

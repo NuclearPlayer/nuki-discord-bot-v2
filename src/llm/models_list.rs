@@ -42,7 +42,7 @@ impl ModelsClient {
         }
     }
 
-    /// Gets the models in the sequence of their use in the last week.
+    /// Gets the models, sorted by their use in the last week.
     pub async fn list(&self) -> Result<Vec<ModelInfo>, ModelsError> {
         let response: ModelsResponse = self
             .http
@@ -56,7 +56,7 @@ impl ModelsClient {
         response.data.into_iter().map(ModelInfo::try_from).collect()
     }
 
-    /// Gets the input modalities that OpenRouter lists now for `model_id`.
+    /// Gets the input modalities that OpenRouter lists at this time for `model_id`.
     pub async fn input_modalities(&self, model_id: &str) -> Result<Vec<String>, ModelsError> {
         let response: ModelEndpointsResponse = self
             .http
@@ -131,7 +131,8 @@ pub fn format_usd_per_m(value: f64) -> String {
     format!("${trimmed}/M")
 }
 
-/// Makes the autocomplete choices for the models whose ID or name contains `query`, without case.
+/// Makes the autocomplete choices for the models that have `query` in their ID or name. The
+/// match ignores case.
 pub fn choices(models: &[ModelInfo], query: &str) -> Vec<ModelChoice> {
     let query = query.to_lowercase();
     models
@@ -160,7 +161,7 @@ fn choice_name(model: &ModelInfo) -> String {
     truncate(name, MAX_NAME_CHARS)
 }
 
-/// Keeps `max_chars - 1` characters and adds `…` when the text is longer than `max_chars`.
+/// If the text is longer than `max_chars`, keeps `max_chars - 1` characters and adds `…`.
 fn truncate(text: String, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
         return text;

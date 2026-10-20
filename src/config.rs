@@ -79,7 +79,7 @@ impl Config {
     }
 }
 
-/// Loads `.env` from the working directory into the environment when the file exists.
+/// If `.env` exists in the working directory, loads the file into the environment.
 pub fn load_dotenv() -> Result<(), dotenvy::Error> {
     match dotenvy::from_path(".env") {
         Err(error) if error.not_found() => Ok(()),

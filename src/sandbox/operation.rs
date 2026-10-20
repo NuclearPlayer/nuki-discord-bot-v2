@@ -31,8 +31,8 @@ pub struct Operation {
 }
 
 impl Operation {
-    /// Makes an operation whose handler parses the JSON parameters into `P`,
-    /// calls `f`, and serializes its result.
+    /// Makes an operation with a handler that parses the JSON parameters into `P`, calls `f`,
+    /// and serializes the result of `f`.
     pub fn typed<P, R, E, F, Fut>(
         namespace: &'static str,
         name: &'static str,
@@ -63,7 +63,7 @@ impl Operation {
         }
     }
 
-    /// Makes a typed operation whose function gets its own clone of `handle` on each call.
+    /// Makes a typed operation. On each call, the function gets its own clone of `handle`.
     pub fn with_handle<H, P, R, E, F, Fut>(
         handle: &Arc<H>,
         namespace: &'static str,
@@ -100,7 +100,7 @@ async fn call<R: Serialize, E: Display>(
     serde_json::to_value(result).map_err(|error| error.to_string())
 }
 
-/// The operations that scripts can call, in the sequence the declarations show them.
+/// The operations that scripts can call, in the sequence that the declarations show.
 pub struct OperationTable {
     operations: Vec<Operation>,
 }

@@ -74,7 +74,7 @@ pub async fn resolve(
     Ok(resolved)
 }
 
-/// A video whose media type rig does not know is `Other`.
+/// If rig does not know the media type of the video, returns `Other`.
 fn resolve_video(attachment: &AttachmentMeta) -> ResolvedAttachment {
     match video_media_type(attachment) {
         Some(media_type) => ResolvedAttachment::Video {
@@ -86,7 +86,8 @@ fn resolve_video(attachment: &AttachmentMeta) -> ResolvedAttachment {
     }
 }
 
-/// An audio file whose media type rig does not know is `Other`, and is not downloaded.
+/// If rig does not know the media type of the audio file, returns `Other` and does not download
+/// the file.
 async fn resolve_audio(
     attachment: &AttachmentMeta,
     http: &reqwest::Client,
@@ -159,7 +160,8 @@ async fn download_text(
     }
 }
 
-/// Downloads only the last `TEXT_LIMIT_BYTES` bytes, keeps them from the next character boundary, and puts a note of the removed byte count before them.
+/// Downloads only the last `TEXT_LIMIT_BYTES` bytes, and keeps the bytes from the next
+/// character boundary. Puts a note with the number of removed bytes before the text.
 async fn download_text_tail(
     attachment: &AttachmentMeta,
     http: &reqwest::Client,
@@ -176,7 +178,8 @@ async fn download_text_tail(
     ))
 }
 
-/// Skips the UTF-8 continuation bytes at the start, which belong to a character that the range cut.
+/// Skips the UTF-8 continuation bytes at the start. These bytes are the end of a character that
+/// starts before the range.
 fn from_character_boundary(bytes: &[u8]) -> &[u8] {
     let start = bytes
         .iter()

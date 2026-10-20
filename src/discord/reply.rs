@@ -1,4 +1,4 @@
-//! Does the Discord actions of an `Outcome`.
+//! Applies each `Outcome` in Discord.
 
 use chrono::Utc;
 use serenity::builder::CreateMessage;
@@ -20,12 +20,13 @@ const THREAD_NAME_CHARS: usize = 100;
 /// Discord rejects a message with more than 2000 characters.
 const MESSAGE_CHARS: usize = 2000;
 
-/// Where and how the outcome of one turn goes to Discord.
+/// The channel and the reply target for the outcome of one turn.
 pub struct AppliedTurn {
     /// The channel where Nuki sends her message.
     pub channel_id: ChannelId,
-    /// `None` only for the first turn of an intake in a new thread: the message of the user is
-    /// in the parent channel, so Nuki sends a usual message in the thread.
+    /// `None` only for the first turn of an intake in a new thread. In that case, Nuki sends a
+    /// new message in the thread, not a reply, because the user's message is in the parent
+    /// channel.
     pub reply_to: Option<MessageId>,
 }
 
@@ -38,7 +39,8 @@ pub enum ReportedBy {
     Timeout,
 }
 
-/// The start of the content on one line, or the author name when the content is empty.
+/// Returns the start of the content on one line. If the content is empty, returns the author
+/// name.
 pub fn thread_name(content: &str, author_name: &str) -> String {
     let one_line = content.split_whitespace().collect::<Vec<_>>().join(" ");
     if one_line.is_empty() {
@@ -47,8 +49,8 @@ pub fn thread_name(content: &str, author_name: &str) -> String {
     one_line.chars().take(THREAD_NAME_CHARS).collect()
 }
 
-/// Applies the outcome of a turn outside an intake, in the run of `stats`. Only an intake turn
-/// has an intake outcome.
+/// Applies the outcome of a turn outside an intake, in the run of `stats`. If the outcome is an
+/// intake outcome, returns an error, because only an intake turn has an intake outcome.
 pub async fn apply_outcome(
     app: &App,
     stats: &RunStats,
@@ -64,7 +66,8 @@ pub async fn apply_outcome(
     }
 }
 
-/// Applies the outcome of a turn of `intake`: the reply, then the report, which closes the intake.
+/// Applies the outcome of a turn in `intake`. Sends the reply, then sends the report. The report
+/// closes the intake.
 pub async fn apply_intake_outcome(
     app: &App,
     stats: &RunStats,
@@ -95,9 +98,9 @@ pub async fn apply_intake_outcome(
     Ok(())
 }
 
-/// Sends the text in parts that Discord accepts: the first part as the reply, the rest as usual
-/// messages in the same channel. Stores the tool turn with the ID of the first message, and
-/// records the IDs of all parts.
+/// Sends the text in parts that Discord accepts. Sends the first part as the reply, and the other
+/// parts as new messages in the same channel, not as replies. Stores the tool turn with the ID
+/// of the first message. Records the IDs of all parts.
 async fn send_reply(
     http: &Http,
     store: &Store,
@@ -153,9 +156,9 @@ async fn save_tool_turn(
     Ok(())
 }
 
-/// Splits the text into parts of at most `MESSAGE_CHARS` characters. A part ends at a line break
-/// where possible. A line longer than the limit splits at a character boundary. An empty line at
-/// the start of a part is dropped, because Discord rejects an empty message.
+/// Splits the text into parts of at most `MESSAGE_CHARS` characters. If possible, a part ends at
+/// a line break. If a line is longer than the limit, splits the line at a character boundary.
+/// Discards an empty line at the start of a part, because Discord rejects an empty message.
 fn split_reply(text: &str) -> Vec<String> {
     text.split('\n')
         .flat_map(line_pieces)
@@ -172,7 +175,8 @@ fn split_reply(text: &str) -> Vec<String> {
         })
 }
 
-/// The line in pieces of at most `MESSAGE_CHARS` characters. An empty line is one empty piece.
+/// Divides the line into pieces of at most `MESSAGE_CHARS` characters. An empty line becomes one
+/// empty piece.
 fn line_pieces(line: &str) -> Vec<String> {
     if line.is_empty() {
         return vec![String::new()];
@@ -184,7 +188,7 @@ fn line_pieces(line: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether the piece fits after `part` on a new line.
+/// Returns `true` if `part` has space for the piece on a new line.
 fn fits(part: &str, piece: &str) -> bool {
     part.chars().count() + 1 + piece.chars().count() <= MESSAGE_CHARS
 }
@@ -277,7 +281,7 @@ mod tests {
         }
     }
 
-    /// Sends `report` of a new feature intake, and gives the events of the store.
+    /// Sends `report` for a new feature intake. Returns the events in the store.
     async fn reported_events(report: Report, reported_by: ReportedBy) -> Vec<RunEvent> {
         let discord = MockServer::start().await;
         mount_admin_channel(&discord).await;
@@ -301,7 +305,7 @@ mod tests {
         events_between(&store, before, after).await
     }
 
-    /// The `intake.reported` event about the reporter of the intake.
+    /// Returns the `intake.reported` event about the intake's reporter.
     fn intake_reported(data: serde_json::Value) -> RunEvent {
         RunEvent {
             user_id: Some(REPORTER_ID),
@@ -309,7 +313,8 @@ mod tests {
         }
     }
 
-    /// Discord answers the first message with the ID `first_id`, and each later one with `next_id`.
+    /// Discord answers the first message with the ID `first_id`, and each subsequent message
+    /// with `next_id`.
     async fn mount_sent_messages(discord: &MockServer, first_id: &str, next_id: &str) {
         let messages = format!("/api/v10/channels/{CHANNEL_ID}/messages");
         Mock::given(method("POST"))

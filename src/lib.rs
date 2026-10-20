@@ -53,8 +53,8 @@ pub async fn run() -> anyhow::Result<()> {
         | GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT
         | GatewayIntents::GUILD_MEMBERS;
-    // `ClientBuilder` takes an owned `Http`, and `Http` is not `Clone`, so the gateway client has
-    // its own `Http` with the same token. The pipeline uses `app.http`.
+    // The gateway client has its own `Http` with the same token, because `ClientBuilder` takes
+    // an owned `Http` and `Http` is not `Clone`. The pipeline uses `app.http`.
     let mut client = Client::builder(&token, intents)
         .event_handler(Handler { app, debouncer })
         .await?;

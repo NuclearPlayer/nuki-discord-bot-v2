@@ -1,4 +1,4 @@
-//! The `workflow.finished` event of a workflow run.
+//! Records the `workflow.finished` event of a workflow run.
 
 use std::future::Future;
 use std::time::Instant;
@@ -9,8 +9,8 @@ use crate::stats::event::{Event, WorkflowFinished, WorkflowOutcome};
 use crate::stats::recorder::RunStats;
 
 /// Runs the workflow `name` and records its `workflow.finished` event in the run of `stats`. The
-/// `outcome` of the event is what the workflow returned; `reply.sent` records what Discord got.
-/// A failed run records the outcome `error` with the error chain, and then returns the error.
+/// `outcome` of the event is what the workflow returned. `reply.sent` records what Discord got.
+/// If the run fails, records the outcome `error` with the error chain, and returns the error.
 pub async fn timed(
     stats: &RunStats,
     name: &str,

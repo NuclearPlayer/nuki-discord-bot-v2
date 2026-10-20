@@ -9,10 +9,11 @@ use crate::stats::event::JevPurpose;
 use crate::stats::recorder::RunStats;
 use crate::store::intakes::IntakeKind;
 
-/// A field is present only if Jev gives a probability of yes above this value.
+/// A field is present only if Jev's probability of yes is above this value.
 const PRESENT_ABOVE: f64 = 0.5;
 
-/// The names of the checklist fields that the conversation does not give, in the sequence of the file.
+/// Gets the names of the checklist fields that the conversation does not give, in the file's
+/// sequence.
 pub async fn missing_fields(
     jev: &JevClient,
     kind: IntakeKind,

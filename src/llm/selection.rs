@@ -3,10 +3,11 @@ use std::sync::RwLock;
 use crate::store::Result;
 use crate::store::settings::SettingsStore;
 
-/// The model before an administrator selects one with `/change-model`.
+/// The model that the LLM agent uses until an administrator selects a model with
+/// `/change-model`.
 pub const DEFAULT_MODEL_ID: &str = "google/gemini-3.8-flash";
 
-/// The ID of the model that the LLM agent uses now. Administrators change it with
+/// The ID of the model that the LLM agent uses at this time. Administrators change it with
 /// `/change-model`.
 pub struct ActiveModel {
     model_id: RwLock<String>,
@@ -14,7 +15,8 @@ pub struct ActiveModel {
 }
 
 impl ActiveModel {
-    /// Uses the stored model ID, or `default_model_id` when none is stored.
+    /// Loads the active model with the stored model ID. If the store has no model ID, uses
+    /// `default_model_id`.
     pub async fn load(settings: SettingsStore, default_model_id: &str) -> Result<ActiveModel> {
         let model_id = settings
             .model_id()
@@ -33,7 +35,8 @@ impl ActiveModel {
             .clone()
     }
 
-    /// Stores the model ID first, so that memory never holds a model ID the store lost.
+    /// Stores the model ID before it updates the model ID in memory, because memory must not
+    /// hold a model ID that the store lost.
     pub async fn set(&self, model_id: &str) -> Result<()> {
         self.settings.set_model_id(model_id).await?;
         *self

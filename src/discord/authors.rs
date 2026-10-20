@@ -1,4 +1,4 @@
-//! Gets the display names and the role names of the authors of messages.
+//! Gets the display name and the role names of each message author.
 
 use std::collections::HashMap;
 
@@ -36,8 +36,10 @@ pub(super) async fn authors_of(
     Ok(try_join_all(authors).await?.into_iter().collect())
 }
 
-/// The nickname, else the global name, else the username, and the names of the roles.
-/// An author who is not a member, for example a user who left or a webhook, has no roles.
+/// Gets the name and the role names of the author. The name is the nickname. If the author has
+/// no nickname, it is the global name. If the author has no global name, it is the username.
+/// If the author is not a member, for example a user who left or a webhook, the author has no
+/// roles.
 async fn author(
     app: &App,
     guild_id: GuildId,

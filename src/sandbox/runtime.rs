@@ -62,21 +62,21 @@ impl ScriptOutcome {
         }
     }
 
-    /// The outcome as JSON, before the output limit.
+    /// Returns the outcome as JSON, before the output limit.
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("a script outcome always serializes")
     }
 }
 
 /// A script run: its outcome, and the names of the operations that the script called, in
-/// sequence. The model gets only the outcome; the usage events get both.
+/// sequence. The model gets only the outcome. The usage events get both.
 #[derive(Debug, PartialEq)]
 pub struct ScriptRun {
     pub outcome: ScriptOutcome,
     pub operations: Vec<String>,
 }
 
-/// Cuts the JSON of an outcome to at most `max_output_bytes`, for the tool result.
+/// Truncates the JSON of an outcome to at most `max_output_bytes`, for the tool result.
 pub fn truncate_tool_result(json: String, max_output_bytes: usize) -> String {
     if json.len() > max_output_bytes {
         format!(
@@ -132,7 +132,8 @@ impl Sandbox {
     ) -> Result<Option<serde_json::Value>, ScriptError> {
         let deadline = Instant::now() + self.limits.timeout;
         let runtime = AsyncRuntime::new()?;
-        // The interrupt handler stops busy JS. The tokio timeout stops a script that waits on an operation.
+        // The interrupt handler stops busy JS. The tokio timeout stops a script that waits for
+        // an operation.
         runtime
             .set_interrupt_handler(Some(Box::new(move || Instant::now() >= deadline)))
             .await;
@@ -168,7 +169,7 @@ impl Sandbox {
     }
 }
 
-/// What the globals of a script need: the operations, and the sinks of the logs and of the
+/// The data that the globals of a script use: the operations, the log sink, and the sink for the
 /// names of the called operations.
 struct Globals {
     table: Arc<OperationTable>,
@@ -252,7 +253,7 @@ fn console_log<'js>(ctx: &Ctx<'js>, logs: LogSink) -> rquickjs::Result<Function<
     )
 }
 
-/// Formats a value as text: a string as it is, any other value as JSON.
+/// Formats a value as text. Keeps a string as it is, and formats all other values as JSON.
 fn display_text<'js>(ctx: &Ctx<'js>, arg: Value<'js>) -> rquickjs::Result<String> {
     match arg.as_string() {
         Some(text) => text.to_string(),
@@ -263,8 +264,8 @@ fn display_text<'js>(ctx: &Ctx<'js>, arg: Value<'js>) -> rquickjs::Result<String
 }
 
 /// Makes `__op(name, json)`, which calls an operation and resolves to its result as JSON. The
-/// name of each call goes to `operations` before the call, so a call that fails or names an
-/// unknown operation is in the list too.
+/// list in `operations` also contains the calls that fail or name an unknown operation, because
+/// `__op` sends each name to `operations` before the call.
 fn op_function<'js>(
     ctx: &Ctx<'js>,
     table: Arc<OperationTable>,

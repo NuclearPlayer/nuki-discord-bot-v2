@@ -6,7 +6,8 @@ pub struct ChatWorkflow {
 }
 
 impl Workflow for ChatWorkflow {
-    /// An empty text is a valid answer: Nuki only reacted, so the bot sends nothing.
+    /// An empty text is a valid answer. If the text is empty, Nuki only reacted, and the bot
+    /// sends nothing.
     async fn run(&self, ctx: &TurnContext) -> anyhow::Result<Outcome> {
         let options = TurnOptions {
             extra: None,

@@ -8,7 +8,7 @@ use crate::github::client::GitHubClient;
 use crate::repos::manager::RepoManager;
 use crate::sandbox::operation::OperationTable;
 
-/// All operations of `run_script`: `discord.*`, then `repo.*`, then `github.*`.
+/// Returns all operations of `run_script`: `discord.*`, then `repo.*`, then `github.*`.
 pub fn full_table(
     discord: discord::DiscordOps,
     repos: Arc<RepoManager>,

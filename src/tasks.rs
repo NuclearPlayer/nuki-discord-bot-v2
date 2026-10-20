@@ -13,8 +13,8 @@ use crate::workflows::intake::timeout::due_intakes;
 
 const INTAKE_CHECK_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
-/// Fetches the clones every `period`. The first fetch is after one period, because
-/// `App::build` clones at start.
+/// Fetches the clones at intervals of `period`. The first fetch occurs after one period,
+/// because `App::build` clones at start.
 pub fn spawn_repo_fetch(repos: Arc<RepoManager>, period: Duration) {
     tokio::spawn(async move {
         let mut ticks = interval_at(Instant::now() + period, period);
@@ -28,7 +28,7 @@ pub fn spawn_repo_fetch(repos: Arc<RepoManager>, period: Duration) {
     });
 }
 
-/// Completes the intakes whose reporter sent no message for `INTAKE_TIMEOUT_HOURS`.
+/// Completes each intake if its reporter sent no message for `INTAKE_TIMEOUT_HOURS`.
 pub fn spawn_intake_timeout(app: Arc<App>) {
     let timeout = TimeDelta::hours(app.config.intake_timeout_hours as i64);
     tokio::spawn(async move {

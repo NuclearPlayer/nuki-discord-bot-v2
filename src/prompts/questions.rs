@@ -21,7 +21,7 @@ pub enum QuestionError {
     TextBeforeFirstHeading,
 }
 
-/// A Markdown text cut at each line that starts with `## `.
+/// A Markdown text, divided at each line that starts with `## `.
 struct Sections {
     preamble: String,
     headed: IndexMap<String, String>,

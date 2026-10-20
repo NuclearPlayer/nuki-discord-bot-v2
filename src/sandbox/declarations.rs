@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 use super::operation::{Operation, OperationTable, Param};
 use crate::prompts::files::TOOL_RUN_SCRIPT;
 
-/// Makes the TypeScript declarations of the operations, which the LLM reads.
+/// Makes the TypeScript declarations of the operations. The LLM reads these declarations.
 pub fn declarations(table: &OperationTable) -> String {
     namespaces(table)
         .iter()

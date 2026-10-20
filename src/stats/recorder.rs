@@ -11,7 +11,7 @@ pub struct EventScope {
     pub user_id: Option<u64>,
 }
 
-/// Writes the usage events.
+/// The writer of the usage events.
 #[derive(Clone)]
 pub struct Stats {
     events: EventStore,
@@ -22,7 +22,8 @@ impl Stats {
         Self { events }
     }
 
-    /// Writes `event` at the current time. A failed write does not stop the bot, so it is only logged.
+    /// Writes `event` at the current time. If the write fails, only logs the error, because a
+    /// failed write must not stop the bot.
     pub async fn record(&self, scope: EventScope, event: Event) {
         let kind = event.kind();
         let new_event = NewEvent {
@@ -49,7 +50,7 @@ impl Stats {
     }
 }
 
-/// The recorder of one run: all of its events have the same run ID, server, and channel.
+/// The recorder of one run. All events of the run have the same run ID, server, and channel.
 #[derive(Clone)]
 pub struct RunStats {
     stats: Stats,
@@ -63,7 +64,7 @@ impl RunStats {
         self.stats.record(self.scope(user_id), event).await;
     }
 
-    /// The scope of an event of this run about `user_id`.
+    /// Returns the scope of an event in this run about `user_id`.
     pub fn scope(&self, user_id: Option<u64>) -> EventScope {
         EventScope {
             run_id: Some(self.run_id.clone()),
@@ -78,12 +79,12 @@ impl RunStats {
     }
 }
 
-/// The run ID of a debounced unit.
+/// Returns the run ID of a debounced unit.
 pub fn run_id_of_unit(last_message_id: u64) -> String {
     format!("unit-{last_message_id}")
 }
 
-/// The run ID of a completion of an inactive intake.
+/// Returns the run ID for the completion of an inactive intake.
 pub fn run_id_of_timeout(intake_id: i64, now: DateTime<Utc>) -> String {
     format!("timeout-{intake_id}-{}", now.timestamp_millis())
 }
@@ -115,7 +116,8 @@ mod tests {
         let after = Utc::now();
         let events = all_events(&store).await;
         let at = events[0].at;
-        // The time of the event is the current time, so the test can only bound it.
+        // The test can only check that the time is between `before` and `after`, because the
+        // event time is the current time.
         assert!(before <= at && at <= after);
         assert_eq!(
             events,

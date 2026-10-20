@@ -9,7 +9,8 @@ use serenity::model::id::ChannelId;
 use crate::stats::event::{ErrorRaised, Event};
 use crate::stats::recorder::{EventScope, Stats};
 
-/// Records the errors of failed workflows, and sends them to the admin log channel.
+/// The recorder for the errors of failed workflows. It also sends each error to the admin log
+/// channel.
 pub struct AdminLog {
     pub http: Arc<Http>,
     pub channel_id: u64,
@@ -17,7 +18,8 @@ pub struct AdminLog {
 }
 
 impl AdminLog {
-    /// Records the `error` event in `scope`, and sends the error with the channel of `scope`.
+    /// Records the `error` event in `scope`. Then sends the error and the channel of `scope` to
+    /// the admin log channel.
     pub async fn report_error(&self, scope: EventScope, workflow: &str, error: &anyhow::Error) {
         let conversation_channel_id = scope.channel_id;
         let raised = ErrorRaised {
@@ -46,7 +48,7 @@ impl AdminLog {
     }
 }
 
-/// An error outside a channel has no place in the message.
+/// If the error occurred outside a channel, the message does not name a channel.
 fn error_message(
     workflow: &str,
     conversation_channel_id: Option<u64>,
@@ -79,7 +81,7 @@ mod tests {
     const SENT_MESSAGE: &str =
         include_str!("../../tests/fixtures/discord/admin_log_sent_message.json");
 
-    /// The admin log on a Discord mock that accepts the messages of the admin log channel.
+    /// Returns an admin log on a Discord mock that accepts the messages to the admin log channel.
     async fn admin_log(discord: &MockServer, store: &Store) -> AdminLog {
         Mock::given(method("POST"))
             .and(path(format!(

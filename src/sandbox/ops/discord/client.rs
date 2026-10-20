@@ -21,15 +21,15 @@ const DEFAULT_SEARCH_LIMIT: u32 = 25;
 const DEFAULT_LIST_LIMIT: u32 = 50;
 const MAX_LIST_LIMIT: u32 = 100;
 
-/// What the `discord.*` operations need to call Discord.
+/// The clients and the data that the `discord.*` operations use to call Discord.
 pub struct DiscordOps {
     pub http: Arc<Http>,
     pub rest: reqwest::Client,
-    /// `https://discord.com/api/v10` in production.
+    /// The base URL of the Discord API. In production, it is `https://discord.com/api/v10`.
     pub api_base: String,
     pub bot_token: String,
     pub guild_id: u64,
-    /// The recorder of the run whose scripts call the operations.
+    /// The recorder of the run in which the scripts call the operations.
     pub stats: RunStats,
 }
 
@@ -43,7 +43,7 @@ pub(super) enum DiscordOpError {
     AttachmentNotFound(String),
     #[error("attachment has no content type: {0}")]
     MissingContentType(String),
-    /// Boxed, because `serenity::Error` is large.
+    /// A failed Discord request. The variant boxes `serenity::Error`, because that type is large.
     #[error("Discord request failed: {0}")]
     Discord(Box<serenity::Error>),
     #[error("HTTP request failed: {0}")]
@@ -138,7 +138,8 @@ impl<'a> SearchQuery<'a> {
 #[derive(Debug, Deserialize)]
 struct SearchResponse {
     total_results: u64,
-    /// Each inner list holds one matching message. Discord no longer sends context messages in it.
+    /// Each inner list holds one matching message. At this time, Discord sends no context
+    /// messages in the list.
     messages: Vec<Vec<Message>>,
 }
 
@@ -249,8 +250,8 @@ impl DiscordOps {
     }
 }
 
-/// Passes a success response through. Any other status is an error with the body,
-/// so that the script sees the message of Discord, for example `Missing Access`.
+/// Passes a success response through. If the status is not a success, returns an error with the
+/// body, because the script must see Discord's message, for example `Missing Access`.
 async fn successful(response: Response) -> Result<Response, DiscordOpError> {
     let status = response.status();
     if status.is_success() {
@@ -260,7 +261,8 @@ async fn successful(response: Response) -> Result<Response, DiscordOpError> {
     Err(DiscordOpError::Status { status, body })
 }
 
-/// Discord takes one cursor. If a script gives more than one, `around` wins over `after`, and `after` over `before`.
+/// Discord takes one cursor. If a script gives more than one cursor, `around` has priority over
+/// `after`, and `after` has priority over `before`.
 fn get_messages(params: &ListParams) -> Result<GetMessages, DiscordOpError> {
     let limit = u8::try_from(params.limit.min(MAX_LIST_LIMIT)).expect("the limit is at most 100");
     let builder = GetMessages::new().limit(limit);
@@ -285,7 +287,7 @@ fn find_attachment<'a>(
         .ok_or_else(|| DiscordOpError::AttachmentNotFound(attachment_id.to_owned()))
 }
 
-/// Parses a Discord ID. Zero is not an ID: Serenity panics on it.
+/// Parses a Discord ID. Zero is not an ID, because Serenity panics on it.
 fn parse_id(value: &str) -> Result<u64, DiscordOpError> {
     value
         .parse::<NonZeroU64>()

@@ -18,7 +18,8 @@ use crate::store::StoreError;
 pub const CHANGE_MODEL_COMMAND: &str = "change-model";
 const MODEL_OPTION: &str = "model";
 
-/// A Discord response failed. Boxed, because `serenity::Error` is large.
+/// The error when a Discord response fails. It boxes `serenity::Error`, because that type is
+/// large.
 #[derive(Debug, Error)]
 #[error("Discord request failed: {0}")]
 pub struct CommandError(Box<serenity::Error>);
@@ -29,7 +30,8 @@ impl From<serenity::Error> for CommandError {
     }
 }
 
-/// Why `/change-model` could not change the model. The user sees it in the reply.
+/// The error when `/change-model` cannot change the model. The user sees this error in the
+/// reply.
 #[derive(Debug, Error)]
 enum ChangeError {
     #[error(transparent)]
@@ -38,7 +40,7 @@ enum ChangeError {
     Store(#[from] StoreError),
 }
 
-/// The `/change-model` command, which only administrators see by default.
+/// By default, only administrators see the `/change-model` command.
 pub fn change_model_command() -> CreateCommand {
     let model = CreateCommandOption::new(CommandOptionType::String, MODEL_OPTION, "Model to use")
         .required(true)
@@ -47,8 +49,8 @@ pub fn change_model_command() -> CreateCommand {
         .description("Change the LLM model of Nuki")
         .add_option(model)
         .default_member_permissions(Permissions::ADMINISTRATOR)
-        // A global command is also in the DMs with the bot, where Discord does not apply
-        // `default_member_permissions`.
+        // Discord also shows a global command in the DMs with the bot. In the DMs, Discord does
+        // not apply `default_member_permissions`.
         .contexts(vec![InteractionContext::Guild])
 }
 
@@ -75,7 +77,7 @@ pub async fn autocomplete(
     Ok(())
 }
 
-/// Gives no choices when OpenRouter fails, because the autocomplete has no way to show an error.
+/// If OpenRouter fails, gives no choices, because the autocomplete cannot show an error.
 async fn model_choices(models: &ModelsClient, query: &str) -> Vec<ModelChoice> {
     match models.list().await {
         Ok(listed) => choices(&listed, query),
@@ -118,8 +120,8 @@ pub async fn execute(
     reply(http, interaction, text).await
 }
 
-/// The scope of an event of the interaction: its server, its channel, and its user. An
-/// interaction is not part of a run.
+/// Returns the scope of an interaction event: the server, the channel, and the user of the
+/// interaction. An interaction is not part of a run.
 fn interaction_scope(interaction: &CommandInteraction) -> EventScope {
     EventScope {
         run_id: None,
@@ -129,8 +131,8 @@ fn interaction_scope(interaction: &CommandInteraction) -> EventScope {
     }
 }
 
-/// Selects `model_id` if OpenRouter lists it, and gives the previous model. An unknown model
-/// gives `None`, and the model does not change.
+/// If OpenRouter lists `model_id`, selects that model and returns the previous model. If
+/// OpenRouter does not list it, returns `None` and does not change the model.
 async fn change_model(
     models: &ModelsClient,
     active: &ActiveModel,

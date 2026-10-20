@@ -19,7 +19,8 @@ const FIRST_FEATURE_TURN: &str = "This is the first turn. First find if the feat
 const INACTIVE_INSTRUCTION: &str = "The reporter does not answer. Do the final checks now. The bot does not send your text to the thread.";
 const REPORT_INSTRUCTION: &str = "Write the report of this conversation. Use \"unknown\" for information that the conversation does not give.";
 
-/// Not a `Workflow`: the handler calls `run_turn` and `complete_inactive` with the intake record.
+/// This type does not implement `Workflow`. The handler calls `run_turn` and
+/// `complete_inactive` with the intake record.
 pub struct IntakeWorkflow {
     pub deps: WorkflowDeps,
 }
@@ -34,7 +35,8 @@ impl IntakeWorkflow {
         self.ask_for(ctx, intake, &missing).await
     }
 
-    /// Completes an intake whose reporter does not answer, with the fields that are still missing.
+    /// Completes an intake when its reporter does not answer, with the fields that are missing at
+    /// that time.
     pub async fn complete_inactive(
         &self,
         ctx: &TurnContext,
@@ -110,7 +112,7 @@ impl IntakeWorkflow {
         llm_turn(&self.deps, ctx, workflow_prompt(intake.kind), options).await
     }
 
-    /// Extracts the report from the conversation and the last turn of Nuki.
+    /// Extracts the report from the conversation and Nuki's last turn.
     async fn complete_report(
         &self,
         ctx: &TurnContext,
@@ -153,8 +155,9 @@ impl IntakeWorkflow {
     }
 }
 
-/// The conversation, then the tool turn of Nuki, then her final text if it is not empty.
-/// The tool results are the evidence for `fixed_in` and `already_exists`.
+/// Builds the extraction history: the conversation, then Nuki's tool turn, then her final text
+/// if the text is not empty. The tool results are the evidence for `fixed_in` and
+/// `already_exists`.
 fn extraction_history(
     ctx: &TurnContext,
     last_turn: &TurnResult,
@@ -195,7 +198,7 @@ fn workflow_prompt(kind: IntakeKind) -> WorkflowPrompt {
     }
 }
 
-/// The first turn is a turn before any message of Nuki.
+/// Returns `true` if the history has no message from Nuki.
 fn is_first_turn(ctx: &TurnContext) -> bool {
     !ctx.history.iter().any(|resolved| resolved.message.is_nuki)
 }
@@ -357,7 +360,8 @@ mod tests {
         }
     }
 
-    /// The system prompt, the history, the tool turn, the final reply, and the report instruction.
+    /// Returns the system prompt, the history, the tool turn, the final reply, and the report
+    /// instruction.
     fn extraction_messages_with_tool_turn() -> Value {
         json!([
             extraction_system_prompt(WORKFLOW_BUG_INTAKE),

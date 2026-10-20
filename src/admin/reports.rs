@@ -5,10 +5,10 @@ use crate::workflows::intake::report::{BugReport, FeatureReport, Report, ReportB
 const BUG_COLOR: u32 = 0xE74C3C;
 const FEATURE_COLOR: u32 = 0x9B59B6;
 
-/// One embed field: the name, the value, and whether it is inline.
+/// One embed field: the name, the value, and the inline flag.
 type Field = (String, String, bool);
 
-/// The parts of an embed that depend on the kind of the report.
+/// The parts of an embed that change with the report kind.
 struct KindParts {
     heading: String,
     summary: String,

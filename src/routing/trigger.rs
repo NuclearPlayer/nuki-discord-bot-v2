@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-/// Why a message reaches Nuki.
+/// The reason why a message goes to Nuki.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Trigger {
@@ -9,7 +9,8 @@ pub enum Trigger {
     Unsolicited,
 }
 
-/// A trigger that goes through the Jev classification. Intake thread messages go directly to their intake.
+/// A trigger for a unit that Jev classifies. The messages in an intake thread go directly to
+/// their intake.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClassifiedTrigger {
     Direct,
@@ -31,9 +32,9 @@ pub struct MessageFacts {
     pub is_system: bool,
     pub is_dm: bool,
     pub in_open_intake_thread: bool,
-    /// A mention of the user of Nuki.
+    /// A mention of Nuki's user.
     pub mentions_nuki: bool,
-    /// A mention of the managed role of Nuki.
+    /// A mention of Nuki's managed role.
     pub mentions_nuki_role: bool,
     pub replies_to_nuki: bool,
 }

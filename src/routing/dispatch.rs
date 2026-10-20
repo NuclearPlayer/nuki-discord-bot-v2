@@ -27,7 +27,7 @@ impl From<&Config> for Thresholds {
 }
 
 impl Thresholds {
-    /// The threshold of a category that has a workflow. `Ignore` has none.
+    /// Returns the threshold of a category that has a workflow. `Ignore` has no threshold.
     fn of(&self, category: Category) -> Option<f64> {
         match category {
             Category::HelpRequest => Some(self.help),
@@ -71,9 +71,9 @@ pub fn decide(
     }
 }
 
-/// Decides with the chat cooldown of the channel `channel_id`. An unsolicited chat that runs
-/// starts the cooldown at the decision, not at the reply, so a unit that is decided while the
-/// reply is written sees the cooldown.
+/// Decides with the chat cooldown of the channel `channel_id`. If an unsolicited chat runs,
+/// starts the cooldown at the decision, not at the reply, because a unit that the bot decides
+/// while Nuki writes the reply must see the cooldown.
 pub fn decide_with_cooldown(
     trigger: ClassifiedTrigger,
     classification: &Classification,
@@ -112,9 +112,10 @@ fn decide_unsolicited(
     Decision::Run(category)
 }
 
-/// The log line of a classification, for example
+/// Returns the log line of a classification, for example
 /// `help_request=0.78 bug_report=0.10 feature_request=0.02 chat=0.07 ignore=0.03 -> run help_request`.
-/// A direct classification has no `ignore` probability, so its line has none.
+/// For a direct classification, the line has no `ignore` probability, because the
+/// classification has none.
 pub fn describe(classification: &Classification, decision: &Decision) -> String {
     let probabilities: Vec<String> = Category::ALL
         .into_iter()

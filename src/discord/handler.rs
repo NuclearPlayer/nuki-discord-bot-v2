@@ -14,7 +14,7 @@ use crate::discord::history::is_system;
 use crate::routing::debounce::Debouncer;
 use crate::routing::trigger::{MessageFacts, trigger_of};
 
-/// `nuki_role_id` is the managed role of Nuki in the server of the message.
+/// `nuki_role_id` is Nuki's managed role in the server of the message.
 pub fn facts_of(
     message: &Message,
     nuki_user_id: u64,
@@ -42,8 +42,8 @@ pub struct Handler {
     pub(crate) debouncer: Debouncer<Message>,
 }
 
-/// Registers `/change-model` as a global command. The HTTP client of the gateway knows the
-/// application ID, which the command routes need.
+/// Registers `/change-model` as a global command. Uses the gateway's HTTP client, because that
+/// client knows the application ID for the command routes.
 async fn register_commands(ctx: &Context) {
     let registered = Command::set_global_commands(&ctx.http, vec![change_model_command()]).await;
     if let Err(error) = registered {
@@ -58,9 +58,9 @@ impl EventHandler for Handler {
         register_commands(&ctx).await;
     }
 
-    /// Debounces each message that has a trigger. The pipeline looks up the intake of the
-    /// channel and the role of Nuki, so this filter does not need them: every message that it
-    /// drops has no trigger.
+    /// Debounces each message that has a trigger. This filter works without the channel's
+    /// intake and Nuki's role, because each message that it discards has no trigger. The
+    /// pipeline finds the intake and the role.
     async fn message(&self, _ctx: Context, message: Message) {
         let facts = facts_of(&message, self.app.nuki.user_id, None, false);
         if trigger_of(&facts).is_none() {

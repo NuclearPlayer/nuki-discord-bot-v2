@@ -13,8 +13,8 @@ use crate::routing::trigger::Trigger;
 use crate::stats::recorder::RunStats;
 use crate::workflows::TurnContext;
 
-/// The turn context in the server `guild_id`, with the stored tool turns of the messages of the
-/// history, in the run of `stats`.
+/// Builds the turn context in the server `guild_id`, in the run of `stats`. Adds the stored tool
+/// turns of the history messages.
 pub async fn turn_context(
     app: &App,
     guild_id: GuildId,
@@ -61,8 +61,9 @@ async fn runtime_context(
     })
 }
 
-/// The store keeps each turn with the channel of its message. The history of an intake has
-/// messages of two channels: the parent channel and the thread.
+/// Loads the stored tool turns of the history. The store keeps each turn with the channel of
+/// its message. An intake's history has messages from two channels: the parent channel and the
+/// thread.
 async fn stored_turns(
     app: &App,
     history: &[ResolvedMessage],

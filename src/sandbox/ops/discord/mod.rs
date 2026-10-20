@@ -10,14 +10,14 @@ use crate::sandbox::operation::{Operation, OperationTable, Param};
 
 const NAMESPACE: &str = "discord";
 
-/// The TypeScript type of `MessageView`, as a literal so that `concat!` can use it.
+/// The TypeScript type of `MessageView`, as a literal for `concat!`.
 macro_rules! message_view_type {
     () => {
         "{ id: string; channelId: string; author: { id: string; name: string }; content: string; timestamp: string; attachments: { id: string; filename: string; contentType: string | null; size: number }[]; replyTo: string | null }"
     };
 }
 
-/// The operations that read the server, add reactions, and add custom emoji.
+/// Returns the operations that read the server, add reactions, and add custom emoji.
 pub fn discord_table(ops: DiscordOps) -> OperationTable {
     let ops = Arc::new(ops);
     OperationTable::new(vec![
@@ -250,7 +250,7 @@ mod tests {
             .await;
     }
 
-    /// The message with the GIF, the GIF, and the upload of the emoji `dance` from it.
+    /// Mounts the message with the GIF, the GIF, and the upload of the emoji `dance` from the GIF.
     async fn mount_emoji_from_gif(server: &MockServer) {
         mount_reply_with_gif(server).await;
         Mock::given(method("GET"))

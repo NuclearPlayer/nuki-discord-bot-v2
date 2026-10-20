@@ -40,7 +40,8 @@ impl ToolTurnStore {
         channel_id: u64,
         message_ids: &[u64],
     ) -> Result<HashMap<u64, Vec<Value>>> {
-        // The IDs go in as one JSON array parameter, so the query text does not depend on their count.
+        // The IDs go into the query as one JSON array parameter, because the query text must not
+        // change with the number of IDs.
         let ids_json = serde_json::to_string(message_ids)?;
         call(&self.conn, move |c| {
             c.prepare(

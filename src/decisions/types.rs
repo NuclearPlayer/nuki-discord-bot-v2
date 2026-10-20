@@ -45,6 +45,6 @@ pub struct DecisionResponse {
 pub struct JevUsage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
-    /// In USD.
+    /// The cost in USD.
     pub cost: Option<f64>,
 }

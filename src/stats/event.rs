@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::routing::trigger::Trigger;
 use crate::store::intakes::IntakeKind;
 
-/// One action of the bot. The data of each variant is the `data` column of its row.
+/// One action of the bot. The `data` column of the event's row holds the data of the variant.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     MessageReceived(MessageReceived),
@@ -61,7 +61,7 @@ impl Event {
             Event::ModelChanged(data) => serde_json::to_value(data),
             Event::ErrorRaised(data) => serde_json::to_value(data),
         };
-        // The data structs have only string map keys, so `to_value` cannot fail.
+        // `to_value` cannot fail, because the data structs have only string map keys.
         data.expect("event data is JSON")
     }
 }
@@ -159,7 +159,7 @@ pub struct ToolCall {
     pub error: Option<String>,
     /// The tool result that the model gets.
     pub result: String,
-    /// The length of the JSON of the script outcome, before the output limit.
+    /// The length of the script outcome's JSON, before the output limit.
     pub result_bytes: u64,
 }
 

@@ -1,5 +1,5 @@
-//! The start of an intake in its thread, the turns in an open intake thread, and the
-//! completion of an inactive intake.
+//! Starts an intake in its thread, runs the turns in an open intake thread, and completes an
+//! inactive intake.
 
 use chrono::Utc;
 use serenity::builder::CreateThread;
@@ -19,14 +19,14 @@ use crate::stats::recorder::{EventScope, RunStats, run_id_of_timeout};
 use crate::store::intakes::{Intake, IntakeKind, NewIntake};
 use crate::workflows::{Outcome, TurnContext, timed};
 
-/// The thread of an intake, and the message that Nuki replies to in it.
+/// The intake's thread, and the message that Nuki replies to in the thread.
 struct IntakeThread {
     channel: GuildChannel,
     reply_to: Option<MessageId>,
 }
 
-/// The workflow name of an intake of `kind` in the admin log: the name of the category that
-/// starts it.
+/// Returns the admin log's workflow name for an intake of `kind`: the name of the category that
+/// starts the intake.
 pub(super) fn intake_workflow(kind: IntakeKind) -> &'static str {
     let category = match kind {
         IntakeKind::Bug => Category::BugReport,
@@ -35,8 +35,9 @@ pub(super) fn intake_workflow(kind: IntakeKind) -> &'static str {
     category.name()
 }
 
-/// Runs a turn of an open intake, in the run of `stats`. A message of the reporter keeps the
-/// intake active.
+/// Runs a turn of an open intake, in the run of `stats`. The intake stays active only if the
+/// reporter wrote the last message of the unit. In that case, sets the intake's last activity to
+/// the time of that message.
 pub(super) async fn continue_intake(
     app: &App,
     unit: &[Message],
@@ -62,10 +63,13 @@ pub(super) async fn continue_intake(
     apply_intake_outcome(app, stats, &applied, &intake, outcome, ReportedBy::Reporter).await
 }
 
-/// Completes an intake whose reporter does not answer, in two steps. First the thread is
-/// fetched: an intake whose thread was deleted is closed without a report. Then the completion
-/// runs as one run in the thread. An error goes to the admin log, with the scope of the thread
-/// before the run and the scope of the run after.
+/// Completes an intake when its reporter does not answer. The completion has two steps:
+///
+/// 1. Fetches the thread. If the thread was deleted, closes the intake without a report.
+/// 2. Completes the intake as one run in the thread.
+///
+/// If an error occurs, sends the error to the admin log. Before the run, the error has the
+/// thread's scope. After the start of the run, the error has the run's scope.
 pub(crate) async fn complete_inactive_intake(app: &App, intake: &Intake) {
     let thread = match fetch_intake_thread(app, intake).await {
         Ok(thread) => thread,
@@ -90,7 +94,8 @@ async fn fetch_intake_thread(app: &App, intake: &Intake) -> anyhow::Result<Guild
     fetch_channel(app, ChannelId::new(intake.thread_id)).await
 }
 
-/// Closes the intake when `error` tells that its thread was deleted. Else gives the error back.
+/// If `error` says that the intake's thread was deleted, closes the intake. If not, returns the
+/// error.
 async fn close_if_deleted(app: &App, intake: &Intake, error: anyhow::Error) -> anyhow::Result<()> {
     if !is_deleted(&error) {
         return Err(error);
@@ -98,8 +103,8 @@ async fn close_if_deleted(app: &App, intake: &Intake, error: anyhow::Error) -> a
     close_deleted(app, intake).await
 }
 
-/// Sends the error to the admin log, and touches the intake, so the next attempt waits one full
-/// intake timeout.
+/// Sends the error to the admin log. Touches the intake, because the next attempt must wait one
+/// full intake timeout.
 async fn report_failure(app: &App, intake: &Intake, scope: EventScope, error: &anyhow::Error) {
     app.admin_log
         .report_error(scope, intake_workflow(intake.kind), error)
@@ -116,7 +121,7 @@ async fn postpone(app: &App, intake: &Intake) {
     }
 }
 
-/// The scope of an event in the thread of the intake, outside a run.
+/// Returns the scope of an event in the intake's thread, outside a run.
 fn thread_scope(intake: &Intake) -> EventScope {
     EventScope {
         run_id: None,
@@ -143,7 +148,7 @@ async fn complete(
     apply_intake_outcome(app, stats, &applied, intake, outcome, ReportedBy::Timeout).await
 }
 
-/// The outcome of an inactive intake: the report, and no reply.
+/// Returns the outcome of an inactive intake: the report, and no reply.
 async fn inactive_outcome(
     app: &App,
     ctx: &TurnContext,
@@ -156,7 +161,8 @@ async fn inactive_outcome(
     })
 }
 
-/// Discord answers 404 for the thread when the thread or its parent channel was deleted.
+/// Returns `true` if Discord answered 404 for the thread. Discord answers 404 when the thread or
+/// its parent channel was deleted.
 fn is_deleted(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<serenity::Error>()
@@ -173,7 +179,7 @@ async fn close_deleted(app: &App, intake: &Intake) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The turn context of the intake in its thread, with the history of the thread, in the run of
+/// Builds the turn context of the intake in its thread, with the thread's history, in the run of
 /// `stats`.
 async fn thread_turn_context(
     app: &App,
@@ -253,8 +259,9 @@ pub(super) async fn start_intake(
     apply_intake_outcome(app, stats, &applied, &intake, outcome, ReportedBy::Reporter).await
 }
 
-/// A unit in a thread or a forum post uses that thread. Else the bot makes a public thread from
-/// the last message of the unit, and Nuki's first message there is not a reply.
+/// If the unit is in a thread or a forum post, uses that thread. If not, makes a public thread
+/// from the last message of the unit. In that case, Nuki's first message in the new thread is
+/// not a reply.
 async fn intake_thread(
     app: &App,
     channel: &GuildChannel,

@@ -25,15 +25,15 @@ use crate::sandbox::runtime::Sandbox;
 use crate::stats::recorder::RunStats;
 use intake::report::Report;
 
-/// Everything a workflow needs from Discord for one turn.
+/// All the data from Discord that a workflow uses for one turn.
 pub struct TurnContext {
     pub trigger: Trigger,
     pub channel_name: String,
     /// The history, oldest first. The messages of the unit are the last messages.
     pub history: Vec<ResolvedMessage>,
-    /// The number of messages of the unit at the end of `history`.
+    /// The number of unit messages at the end of `history`.
     pub unit_len: usize,
-    /// The stored tool turns, by the ID of the message of Nuki that ended the turn.
+    /// The stored tool turns, by the ID of Nuki's message that ended the turn.
     pub stored_turns: HashMap<u64, Vec<serde_json::Value>>,
     pub runtime: RuntimeContext,
     /// The sandbox of the `run_script` tool, for the server of the turn.
@@ -45,7 +45,8 @@ pub struct TurnContext {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Reply {
     pub text: String,
-    /// The tool calls and results of the turn, which the handler stores with the sent message.
+    /// The tool calls and the tool results of the turn. The handler stores them with the sent
+    /// message.
     pub turn_messages: Vec<serde_json::Value>,
 }
 
@@ -87,14 +88,15 @@ pub trait Workflow {
 pub struct TurnOptions<'a> {
     /// Text for the system prompt, after the workflow prompt.
     pub extra: Option<&'a str>,
-    /// Without it, the last message of the history is the prompt. With it, the full
-    /// history is the history and the prompt is a user message with the instruction.
+    /// If it is `None`, the last message of the history is the prompt. If it is set, all of the
+    /// history goes to the model as history, and the prompt is a user message with the
+    /// instruction.
     pub instruction: Option<&'a str>,
-    /// Gives the model the `run_script` tool.
+    /// If `true`, the model gets the `run_script` tool.
     pub with_tools: bool,
 }
 
-/// The shared LLM step of all workflows.
+/// Runs the LLM step that all workflows share.
 pub async fn llm_turn(
     deps: &WorkflowDeps,
     ctx: &TurnContext,

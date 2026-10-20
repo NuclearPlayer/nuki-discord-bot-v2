@@ -31,8 +31,8 @@ fn roles_text(roles: &[String]) -> String {
     }
 }
 
-/// One entry per message: the parts of `message_parts`, with the label of each attachment, each
-/// on its own line.
+/// Returns one entry for each message. Each entry has the parts of `message_parts`, one part on
+/// each line. For an attachment, the part is the label of the attachment.
 pub fn jev_lines(messages: &[ResolvedMessage]) -> Vec<String> {
     messages
         .iter()
@@ -47,9 +47,14 @@ pub fn jev_lines(messages: &[ResolvedMessage]) -> Vec<String> {
         .collect()
 }
 
-/// The parts of a message in their sequence: the line of the thread that it opens, the header,
-/// the parts of each attachment, and the line of the thread that it started. `text` makes a part
-/// from a line, and `attachment` makes the parts of an attachment.
+/// Returns the parts of a message in this sequence:
+///
+/// - the line of the thread that the message opens
+/// - the header
+/// - the parts of each attachment
+/// - the line of the thread that the message started
+///
+/// `text` makes a part from a line. `attachment` makes the parts of an attachment.
 fn message_parts<T>(
     resolved: &ResolvedMessage,
     text: impl Fn(String) -> T,
@@ -94,8 +99,8 @@ fn stored_turn(
         .collect()
 }
 
-/// A message of Nuki is an assistant turn, unless it has attachments or a thread marker: an
-/// assistant turn cannot contain them.
+/// Nuki's messages become assistant turns. If Nuki's message has attachments or a thread marker,
+/// it becomes a user turn, because an assistant turn cannot contain them.
 fn turn(resolved: &ResolvedMessage) -> Message {
     let is_plain = resolved.attachments.is_empty() && resolved.thread.is_none();
     if resolved.message.is_nuki && is_plain {
@@ -109,7 +114,8 @@ fn user_turn(resolved: &ResolvedMessage) -> Message {
     Message::from(message_parts(resolved, UserContent::text, attachment_parts))
 }
 
-/// The thread header before the header of the message that opens the history of a thread.
+/// Returns the thread header that goes before the header of the first message in a thread's
+/// history.
 fn opens_line(marker: &ThreadMarker) -> Option<String> {
     match marker {
         ThreadMarker::Opens {
@@ -133,7 +139,7 @@ fn opens_line(marker: &ThreadMarker) -> Option<String> {
     }
 }
 
-/// The line after the attachment labels of a message that started a thread.
+/// Returns the line that goes after the attachment labels, for a message that started a thread.
 fn started_line(marker: &ThreadMarker) -> Option<String> {
     match marker {
         ThreadMarker::Started { name, reply_count } => Some(format!(

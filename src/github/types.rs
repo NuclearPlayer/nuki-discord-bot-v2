@@ -30,7 +30,8 @@ pub struct PullRequest {
     pub merged_at: Option<DateTime<Utc>>,
 }
 
-/// GraphQL already uses the field names of this type, so it deserializes directly.
+/// This type deserializes directly from the GraphQL response, because GraphQL uses the same
+/// field names as this type.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Discussion {
@@ -86,7 +87,8 @@ pub(super) struct SearchResponse<T> {
     pub(super) items: Vec<T>,
 }
 
-/// A pull request as the issue search returns it. The merge time is only in the nested `pull_request` object.
+/// A pull request in the form that the issue search returns. Only the nested `pull_request`
+/// object contains the merge time.
 #[derive(Deserialize)]
 pub(super) struct IssueResponse {
     number: u64,

@@ -31,7 +31,8 @@ impl Modality {
         }
     }
 
-    /// The name of the modality in the input modalities of a model, for the modalities that a model can lack.
+    /// Returns the name of the modality in a model's input modalities. Returns a name only for a
+    /// modality that some models do not have.
     fn input_name(self) -> Option<&'static str> {
         match self {
             Self::Image => Some("image"),
@@ -41,7 +42,8 @@ impl Modality {
         }
     }
 
-    /// The modality as the model receives it: a media modality that the model cannot read is `Other`.
+    /// Returns the modality as the model receives it. If the model cannot read a media modality,
+    /// returns `Other`.
     pub fn for_model(self, input_modalities: &[String]) -> Self {
         match self.input_name() {
             Some(name) if !input_modalities.iter().any(|modality| modality == name) => Self::Other,
@@ -54,7 +56,8 @@ pub fn video_media_type(attachment: &AttachmentMeta) -> Option<VideoMediaType> {
     content_type_essence(attachment).and_then(VideoMediaType::from_mime_type)
 }
 
-/// Also maps the names that Discord gives MP3 and WAV files, which rig does not know.
+/// Also maps the names that Discord gives to MP3 and WAV files, because rig does not know these
+/// names.
 pub fn audio_media_type(attachment: &AttachmentMeta) -> Option<AudioMediaType> {
     match content_type_essence(attachment)? {
         "audio/mpeg" => Some(AudioMediaType::MP3),
@@ -63,7 +66,8 @@ pub fn audio_media_type(attachment: &AttachmentMeta) -> Option<AudioMediaType> {
     }
 }
 
-/// The content type without its parameters: `text/plain; charset=utf-8` is `text/plain`.
+/// Returns the content type without its parameters. For example, `text/plain; charset=utf-8`
+/// becomes `text/plain`.
 fn content_type_essence(attachment: &AttachmentMeta) -> Option<&str> {
     attachment.content_type.as_deref().map(mime_essence)
 }

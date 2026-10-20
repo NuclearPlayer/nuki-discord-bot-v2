@@ -27,7 +27,7 @@ impl Git {
         Git::run_allowing(dir, args, &[]).await
     }
 
-    /// Like `run`, but an exit code in `allowed_codes` is a success, as is 0.
+    /// Runs `git` as `run` does, but also accepts each exit code in `allowed_codes` as a success.
     pub async fn run_allowing(
         dir: Option<&Path>,
         args: &[&str],
@@ -47,8 +47,8 @@ impl Git {
     }
 }
 
-/// A `git` command without the system and user configuration, so that the
-/// configuration of the machine cannot change the output.
+/// Makes a `git` command without the system and user configuration, because the machine's
+/// configuration must not change the output.
 pub(super) fn isolated_git() -> std::process::Command {
     let mut command = std::process::Command::new("git");
     command

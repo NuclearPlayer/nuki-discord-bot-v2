@@ -16,7 +16,7 @@ pub struct HelpWorkflow {
 }
 
 impl Workflow for HelpWorkflow {
-    /// Nuki writes a draft, and the bot sends it only if Jev judges it good enough.
+    /// Nuki writes a draft, and the bot sends it only if Jev approves the draft.
     async fn run(&self, ctx: &TurnContext) -> anyhow::Result<Outcome> {
         let options = TurnOptions {
             extra: None,
@@ -40,7 +40,8 @@ impl Workflow for HelpWorkflow {
 }
 
 impl HelpWorkflow {
-    /// The probability from Jev that the draft answers the question well.
+    /// Gets Jev's probability that the draft answers the user's question with specific
+    /// information.
     async fn quality(&self, ctx: &TurnContext, draft: &str) -> anyhow::Result<f64> {
         let state = json!({
             "conversation": jev_lines(&ctx.history),
@@ -65,8 +66,8 @@ impl HelpWorkflow {
         }
     }
 
-    /// An unsolicited message gets no reply. A direct question gets a message that Nuki
-    /// found no good information.
+    /// Sends nothing for an unsolicited message. For a direct question, sends a message that
+    /// says that Nuki found no good information.
     async fn rejected(&self, ctx: &TurnContext) -> anyhow::Result<Outcome> {
         match ctx.trigger {
             Trigger::Unsolicited => Ok(Outcome::Nothing),
@@ -74,7 +75,8 @@ impl HelpWorkflow {
         }
     }
 
-    /// An empty text is a valid answer: Nuki only reacted, so the bot sends nothing.
+    /// An empty text is a valid answer. If the text is empty, Nuki only reacted, and the bot
+    /// sends nothing.
     async fn fallback(&self, ctx: &TurnContext) -> anyhow::Result<Outcome> {
         let options = TurnOptions {
             extra: None,

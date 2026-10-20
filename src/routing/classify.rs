@@ -122,6 +122,7 @@ mod tests {
     use super::*;
     use crate::decisions::client::{DECISIONS_PATH, JEV_MODEL};
     use crate::decisions::test_support::{jev_response, mount_jev_answers};
+    use crate::routing::test_support::category_answer;
     use crate::stats::test_support::{events_between, run_event, test_run, unrecorded_run};
 
     fn history() -> Vec<String> {
@@ -154,34 +155,12 @@ mod tests {
         })
     }
 
-    /// Returns a `category` choice answer. The choice and the confidence come from the top
-    /// probability.
-    fn answer_with(probabilities: &[(&str, f64)]) -> Value {
-        let (choice, confidence) = probabilities
-            .iter()
-            .copied()
-            .max_by(|(_, left), (_, right)| left.total_cmp(right))
-            .unwrap();
-        let probabilities: serde_json::Map<String, Value> = probabilities
-            .iter()
-            .map(|(name, probability)| (name.to_string(), json!(probability)))
-            .collect();
-        json!({
-            "category": {
-                "type": "choice",
-                "choice": choice,
-                "confidence": confidence,
-                "probabilities": probabilities,
-            }
-        })
-    }
-
     async fn jev_expecting(request: Value) -> MockServer {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path(DECISIONS_PATH))
             .and(body_json(request))
-            .respond_with(jev_response(answer_with(&[("bug_report", 1.0)])))
+            .respond_with(jev_response(category_answer(&[("bug_report", 1.0)])))
             .expect(1)
             .mount(&server)
             .await;
@@ -247,7 +226,7 @@ mod tests {
 
     #[tokio::test]
     async fn classify_maps_the_probabilities_to_categories() {
-        let answers = answer_with(&[
+        let answers = category_answer(&[
             ("help_request", 0.78),
             ("bug_report", 0.10),
             ("feature_request", 0.02),
@@ -295,7 +274,7 @@ mod tests {
 
     #[tokio::test]
     async fn classify_fails_on_an_unknown_category() {
-        let server = jev_answering(answer_with(&[("help_request", 0.6), ("spam", 0.4)])).await;
+        let server = jev_answering(category_answer(&[("help_request", 0.6), ("spam", 0.4)])).await;
 
         let error = classify_against(&server, ClassifiedTrigger::Unsolicited)
             .await

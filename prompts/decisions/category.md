@@ -6,7 +6,7 @@ The author wants help with Nuclear: how to install it, use it, or configure it, 
 
 ## bug_report
 
-The author reports behavior of Nuclear that is incorrect: a crash, an error, a feature that does not work as it should. It does not include a question about how to do something, and it does not include a problem that the author caused by a wrong setting.
+The author reports behavior of Nuclear that is incorrect: a crash, an error, a feature that does not work as it should. It does not include a question about how to do something, and it does not include a problem that the author caused by a wrong setting. It does not include the messages of a person who works on a problem that somebody else reported.
 
 ## feature_request
 
@@ -18,4 +18,6 @@ General conversation where Nuki can take part: banter, jokes, greetings, talk to
 
 ## ignore
 
-The new messages do not need Nuki. This includes conversations between other people that Nuki has no reason to join, and conversations where a different person already helps the author.
+The new messages do not need Nuki. This includes conversations between other people that Nuki has no reason to join.
+
+It also includes a problem of one person that a different person, not Nuki, helps with right now: the helper wrote in the last few messages before the new messages. The messages of the helper are part of this help, even when they describe the bug: for example, the helper tests the problem, tells what they found, or asks a question. The replies to the helper are also part of this help. Answers to Nuki's questions are not part of this help: they need Nuki.

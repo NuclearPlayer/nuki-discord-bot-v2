@@ -9,8 +9,8 @@ pub enum Trigger {
     Unsolicited,
 }
 
-/// A trigger for a unit that Jev classifies. The messages in an intake thread go directly to
-/// their intake.
+/// A trigger for a unit that Jev classifies. In an intake thread, Jev classifies a unit as
+/// `Unsolicited` when the unit does not address Nuki.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClassifiedTrigger {
     Direct,
@@ -46,10 +46,21 @@ pub fn trigger_of(facts: &MessageFacts) -> Option<Trigger> {
     if facts.in_open_intake_thread {
         return Some(Trigger::IntakeThread);
     }
-    if facts.mentions_nuki || facts.mentions_nuki_role || facts.replies_to_nuki {
+    if addresses_nuki(facts) {
         return Some(Trigger::Direct);
     }
     Some(Trigger::Unsolicited)
+}
+
+/// Returns `true` if the message mentions Nuki, mentions Nuki's managed role, or replies to Nuki.
+fn addresses_nuki(facts: &MessageFacts) -> bool {
+    facts.mentions_nuki || facts.mentions_nuki_role || facts.replies_to_nuki
+}
+
+/// Returns `true` if a message of the unit mentions Nuki, mentions Nuki's managed role, or
+/// replies to Nuki.
+pub fn unit_addresses_nuki(unit: &[MessageFacts]) -> bool {
+    unit.iter().any(addresses_nuki)
 }
 
 pub fn trigger_of_unit(unit: &[MessageFacts]) -> Option<Trigger> {
@@ -153,6 +164,41 @@ mod tests {
         };
 
         assert_eq!(trigger_of(&facts), Some(Trigger::IntakeThread));
+    }
+
+    #[test]
+    fn a_unit_with_a_mention_of_nuki_addresses_nuki() {
+        let mention = MessageFacts {
+            mentions_nuki: true,
+            ..IN_INTAKE_THREAD
+        };
+
+        assert!(unit_addresses_nuki(&[IN_INTAKE_THREAD, mention]));
+    }
+
+    #[test]
+    fn a_unit_with_a_mention_of_the_role_of_nuki_addresses_nuki() {
+        let mention = MessageFacts {
+            mentions_nuki_role: true,
+            ..IN_INTAKE_THREAD
+        };
+
+        assert!(unit_addresses_nuki(&[mention]));
+    }
+
+    #[test]
+    fn a_unit_with_a_reply_to_nuki_addresses_nuki() {
+        let reply = MessageFacts {
+            replies_to_nuki: true,
+            ..IN_INTAKE_THREAD
+        };
+
+        assert!(unit_addresses_nuki(&[reply]));
+    }
+
+    #[test]
+    fn a_unit_without_a_mention_or_a_reply_does_not_address_nuki() {
+        assert!(!unit_addresses_nuki(&[IN_INTAKE_THREAD, IN_INTAKE_THREAD]));
     }
 
     #[test]

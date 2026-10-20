@@ -12,7 +12,7 @@ Nuki is a Rust Discord bot for the server of the Nuclear music player. `README.m
 2. `Debouncer` (`src/routing/debounce.rs`) collects the messages of one author in one channel. When the author sends no message for `DEBOUNCE_SECONDS`, it sends the messages as one unit.
 3. `spawn_unit_reader` (`src/discord/pipeline.rs`) starts `process_unit` in a new task for each unit. Each unit is one run, with one `RunStats`.
 4. `trigger_of_unit` (`src/routing/trigger.rs`) gives the trigger of the unit:
-   - `IntakeThread`: the unit is in the thread of an open intake. The pipeline sends the unit to `continue_intake`, with no classification.
+   - `IntakeThread`: the unit is in the thread of an open intake. `route_in_intake` (`src/discord/pipeline.rs`) sends the unit to its intake. Refer to "Intakes".
    - `Direct`: a message mentions Nuki or Nuki's managed role, or replies to Nuki.
    - `Unsolicited`: all other units.
 5. `fetch_unit_context` (`src/discord/history.rs`) gets the last `CONTEXT_MESSAGES` messages of the channel. The unit is at the end.
@@ -36,7 +36,7 @@ The Help workflow sends Nuki's draft to Jev with `prompts/decisions/help-quality
 
 `Stats::record` (`src/stats/recorder.rs`) writes usage events to the `events` table. In a run, `RunStats::record` gives each event the run ID, the server, and the channel. `src/stats/event.rs` contains the event types. These functions record the events:
 
-- `record_received` and `classify` in `src/discord/pipeline.rs`: `message.received` and `unit.routed`. `src/discord/events.rs` makes their data.
+- `record_received` and `report_decision` in `src/discord/pipeline.rs`: `message.received` and `unit.routed`. `src/discord/events.rs` makes their data.
 - `JevClient::decide` (`src/decisions/client.rs`): `jev.call`.
 - `StatsHook` (`src/llm/stats_hook.rs`): `llm.call`, for each model call.
 - `run_script`: `tool.call`.
@@ -53,7 +53,11 @@ An intake collects a bug report or a feature request in a thread:
 
 1. `start_intake` (`src/discord/intake_thread.rs`) finds the thread. If the unit is in a thread, it uses that thread. If not, it makes a public thread from the last message of the unit.
 2. `start_intake` stores the intake in `intakes` and runs the first turn.
-3. When the next unit comes in the thread, `continue_intake` runs the next turn. `fetch_thread_history` gets the history of the intake.
+3. When the next unit comes in the thread, `route_in_intake` (`src/discord/pipeline.rs`) examines the unit:
+   - If a message of the unit mentions Nuki or Nuki's managed role, or replies to Nuki, Nuki does not classify the unit. `continue_intake` runs the next turn.
+   - If not, Jev classifies the unit with the question of an `Unsolicited` unit, with all the categories. `decide_in_intake` (`src/routing/dispatch.rs`) gives the `Decision`. If `ignore` is the top category, the decision is `Skip`: Nuki skips the unit and does not change the intake. For example, Nuki skips the messages of a maintainer who works on the bug with the reporter. If another category is on top, the decision is `ContinueIntake`, and `continue_intake` runs the next turn. The thresholds and the chat cooldown do not apply.
+
+   Nuki makes this decision again for each unit, so Nuki can continue the intake after a skipped unit. `continue_intake` gets the history of the intake with `fetch_thread_history`.
 4. `IntakeWorkflow::run_turn` (`src/workflows/intake/mod.rs`) sends the conversation to Jev with the questions in `bug-fields.md` or `feature-fields.md`. If fields are missing, the system prompt of the turn gives their names.
 5. When all fields are present, `LlmClient::extract` makes the `Report` (`src/workflows/intake/report.rs`).
 6. `apply_intake_outcome` sends the report as an embed to the admin log channel, and closes the intake.
@@ -83,11 +87,11 @@ Nuki keeps its state in these locations:
 
 | Task | Files |
 |---|---|
-| Change which messages reach Nuki | `trigger_of`, `trigger_of_unit` in `src/routing/trigger.rs`. `facts_of` in `src/discord/handler.rs`. |
-| Add a trigger rule | A field in `MessageFacts` and a rule in `trigger_of`, in `src/routing/trigger.rs`. Fill the field in `facts_of`. |
+| Change which messages reach Nuki | `trigger_of`, `trigger_of_unit`, `unit_addresses_nuki` in `src/routing/trigger.rs`. `facts_of` in `src/discord/handler.rs`. |
+| Add a trigger rule | A field in `MessageFacts` and a rule in `trigger_of`, in `src/routing/trigger.rs`. Fill the field in `facts_of`. If the rule tells that a message addresses Nuki, put it in `addresses_nuki`. Then `unit_addresses_nuki` also uses it in an intake thread. |
 | Change the debounce | `src/routing/debounce.rs`. `DEBOUNCE_SECONDS` in `src/config.rs`. |
 | Change the categories | `prompts/decisions/category.md`, `src/routing/category.rs`, `run_category` in `src/discord/pipeline.rs`. |
-| Change the thresholds or the chat cooldown | `src/routing/dispatch.rs`, `src/routing/cooldown.rs`, `src/config.rs`. |
+| Change the thresholds or the chat cooldown | `src/routing/dispatch.rs`, `src/routing/cooldown.rs`, `src/config.rs`. In an intake thread, `decide_in_intake` in `src/routing/dispatch.rs` decides with no thresholds and no cooldown. |
 | Change which messages are in the history | `fetch_unit_context` and `fetch_thread_history` in `src/discord/history.rs`. |
 | Change how the chat history is shown to the LLM | `build_history` and `header` in `src/discord/context.rs`. `ThreadMarker` in `src/discord/thread_marker.rs`. |
 | Change how the history is shown to Jev | `jev_lines` in `src/discord/context.rs`. |

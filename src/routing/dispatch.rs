@@ -42,6 +42,8 @@ impl Thresholds {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Decision {
     Run(Category),
+    /// The decision for a unit in an open intake thread: the intake turn runs.
+    ContinueIntake,
     Skip(SkipReason),
 }
 
@@ -90,6 +92,17 @@ pub fn decide_with_cooldown(
     decision
 }
 
+/// Decides for an unsolicited unit in the thread of an open intake. If `ignore` is the top
+/// category, skips the unit. If not, continues the intake. The thresholds and the chat cooldown
+/// do not apply.
+pub fn decide_in_intake(classification: &Classification) -> Decision {
+    let (category, _) = classification.top();
+    if category == Category::Ignore {
+        return Decision::Skip(SkipReason::Ignored);
+    }
+    Decision::ContinueIntake
+}
+
 fn decide_unsolicited(
     category: Category,
     probability: f64,
@@ -133,6 +146,7 @@ impl fmt::Display for Decision {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Decision::Run(category) => write!(f, "run {}", category.name()),
+            Decision::ContinueIntake => write!(f, "continue the intake"),
             Decision::Skip(reason) => write!(f, "skip: {reason}"),
         }
     }
@@ -333,6 +347,41 @@ mod tests {
         );
 
         assert!(!cooldowns.is_active(CHANNEL_ID, now));
+    }
+
+    #[test]
+    fn in_an_intake_thread_ignore_skips_the_unit() {
+        let classification = classification_with_top(Category::Ignore, 0.7);
+
+        let decision = decide_in_intake(&classification);
+
+        assert_eq!(decision, Decision::Skip(SkipReason::Ignored));
+    }
+
+    #[test]
+    fn in_an_intake_thread_a_weak_bug_report_continues_the_intake() {
+        let classification = classification_with_top(Category::BugReport, 0.3);
+
+        let decision = decide_in_intake(&classification);
+
+        assert_eq!(decision, Decision::ContinueIntake);
+    }
+
+    #[test]
+    fn in_an_intake_thread_ignore_second_by_a_small_margin_continues_the_intake() {
+        let classification = Classification {
+            probabilities: indexmap! {
+                Category::HelpRequest => 0.04,
+                Category::BugReport => 0.47,
+                Category::FeatureRequest => 0.01,
+                Category::Chat => 0.03,
+                Category::Ignore => 0.45,
+            },
+        };
+
+        let decision = decide_in_intake(&classification);
+
+        assert_eq!(decision, Decision::ContinueIntake);
     }
 
     #[test]

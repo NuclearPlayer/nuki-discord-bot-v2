@@ -18,11 +18,14 @@ use crate::discord::intake_thread::{continue_intake, intake_workflow, start_inta
 use crate::discord::reply::{AppliedTurn, apply_outcome};
 use crate::discord::turn_context::turn_context;
 use crate::routing::category::Category;
-use crate::routing::dispatch::{Decision, decide_with_cooldown, describe};
-use crate::routing::trigger::{ClassifiedTrigger, MessageFacts, Trigger, trigger_of_unit};
+use crate::routing::classify::Classification;
+use crate::routing::dispatch::{Decision, decide_in_intake, decide_with_cooldown, describe};
+use crate::routing::trigger::{
+    ClassifiedTrigger, MessageFacts, Trigger, trigger_of_unit, unit_addresses_nuki,
+};
 use crate::stats::event::Event;
 use crate::stats::recorder::{RunStats, run_id_of_unit};
-use crate::store::intakes::IntakeKind;
+use crate::store::intakes::{Intake, IntakeKind};
 use crate::workflows::{Workflow, timed};
 
 /// The workflow name for the admin log, if an error occurs before the bot selects a workflow.
@@ -112,10 +115,7 @@ async fn handle_unit(app: &App, unit: &[Message], stats: &RunStats) -> Result<()
     match trigger {
         Trigger::IntakeThread => {
             let intake = intake.expect("only the thread of an open intake has this trigger");
-            let workflow = intake_workflow(intake.kind);
-            continue_intake(app, unit, intake, stats)
-                .await
-                .in_workflow(workflow)
+            route_in_intake(app, unit, intake, unit_addresses_nuki(&facts), stats).await
         }
         Trigger::Direct => route(app, unit, ClassifiedTrigger::Direct, stats).await,
         Trigger::Unsolicited => route(app, unit, ClassifiedTrigger::Unsolicited, stats).await,
@@ -188,6 +188,43 @@ async fn route(
         .in_workflow(workflow)
 }
 
+/// Runs the intake turn for a unit in the intake's thread. If the unit does not address Nuki,
+/// Jev classifies the unit first. If `ignore` is the top category, Nuki skips the unit and the
+/// intake stays as it is.
+async fn route_in_intake(
+    app: &App,
+    unit: &[Message],
+    intake: Intake,
+    addresses_nuki: bool,
+    stats: &RunStats,
+) -> Result<(), Failure> {
+    if !addresses_nuki {
+        let decision = classify_in_intake(app, unit, stats)
+            .await
+            .in_workflow(ROUTING)?;
+        if let Decision::Skip(_) = decision {
+            return Ok(());
+        }
+    }
+    let workflow = intake_workflow(intake.kind);
+    continue_intake(app, unit, intake, stats)
+        .await
+        .in_workflow(workflow)
+}
+
+/// Classifies a unit in the intake's thread with all categories, and decides if the intake turn
+/// runs. Logs and records the decision.
+async fn classify_in_intake(
+    app: &App,
+    unit: &[Message],
+    stats: &RunStats,
+) -> anyhow::Result<Decision> {
+    let classified = classify_unit(app, unit, ClassifiedTrigger::Unsolicited, stats).await?;
+    let decision = decide_in_intake(&classified.classification);
+    report_decision(stats, unit, &classified, &decision).await;
+    Ok(decision)
+}
+
 /// Classifies the unit with its history. Decides what to run with the channel's chat cooldown,
 /// and logs and records the decision. If the unit runs, returns the unit as `Routed`.
 async fn classify(
@@ -196,8 +233,42 @@ async fn classify(
     trigger: ClassifiedTrigger,
     stats: &RunStats,
 ) -> anyhow::Result<Option<Routed>> {
-    let last = last_message(unit);
-    let channel = fetch_channel(app, last.channel_id).await?;
+    let classified = classify_unit(app, unit, trigger, stats).await?;
+    let decision = decide_with_cooldown(
+        trigger,
+        &classified.classification,
+        &app.thresholds,
+        &app.cooldowns,
+        classified.channel.id.get(),
+        Instant::now(),
+    );
+    report_decision(stats, unit, &classified, &decision).await;
+    let Decision::Run(category) = decision else {
+        return Ok(None);
+    };
+    Ok(Some(Routed {
+        trigger,
+        category,
+        channel: classified.channel,
+        history: classified.history,
+    }))
+}
+
+/// A unit's channel and history, with Jev's classification of the unit.
+struct Classified {
+    channel: GuildChannel,
+    history: Vec<ResolvedMessage>,
+    classification: Classification,
+}
+
+/// Gets the unit's channel and history, and sends them to Jev for the classification.
+async fn classify_unit(
+    app: &App,
+    unit: &[Message],
+    trigger: ClassifiedTrigger,
+    stats: &RunStats,
+) -> anyhow::Result<Classified> {
+    let channel = fetch_channel(app, last_message(unit).channel_id).await?;
     let history = fetch_unit_context(app, &channel, unit).await?;
     let lines = jev_lines(&history);
     let (history_lines, unit_lines) = lines.split_at(lines.len() - unit.len());
@@ -205,32 +276,32 @@ async fn classify(
         .classifier
         .classify(trigger, history_lines, unit_lines, stats)
         .await?;
-    let decision = decide_with_cooldown(
-        trigger,
-        &classification,
-        &app.thresholds,
-        &app.cooldowns,
-        channel.id.get(),
-        Instant::now(),
-    );
+    Ok(Classified {
+        channel,
+        history,
+        classification,
+    })
+}
+
+/// Logs the decision, and records it as a `unit.routed` event.
+async fn report_decision(
+    stats: &RunStats,
+    unit: &[Message],
+    classified: &Classified,
+    decision: &Decision,
+) {
     tracing::info!(
-        channel = channel.name,
+        channel = classified.channel.name,
         "{}",
-        describe(&classification, &decision)
+        describe(&classified.classification, decision)
     );
-    let routed = unit_routed(unit.len(), &classification, &decision);
+    let routed = unit_routed(unit.len(), &classified.classification, decision);
     stats
-        .record(Some(last.author.id.get()), Event::UnitRouted(routed))
+        .record(
+            Some(last_message(unit).author.id.get()),
+            Event::UnitRouted(routed),
+        )
         .await;
-    match decision {
-        Decision::Run(category) => Ok(Some(Routed {
-            trigger,
-            category,
-            channel,
-            history,
-        })),
-        Decision::Skip(_) => Ok(None),
-    }
 }
 
 async fn run_category(
@@ -290,17 +361,111 @@ async fn run_workflow(
 
 #[cfg(test)]
 mod tests {
+    use serde_json::Value;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer};
 
     use super::*;
+    use crate::discord::test_support::intake_thread_scene::{
+        BUG_REPORT_ON_TOP, IGNORE_ON_TOP, IntakeThreadScene, NUKI_ASKS_FOR_THE_PLATFORM, UNIT_ID,
+        gateway_message_in_server, maintainer_finding, mentioning_nuki, nuki_question, reply_to,
+        reporter, thread_message, unit_routed_data,
+    };
+    use crate::discord::test_support::{GUILD_ROLES, NUKI_USER_ID};
     use crate::test_support::{discord_http, json_response};
 
-    const NUKI_USER_ID: u64 = 1700000000000000001;
     const ROLE_MENTION: &str =
         include_str!("../../tests/fixtures/discord/handler_role_mention.json");
-    const GUILD_ROLES: &str =
-        include_str!("../../tests/fixtures/discord/pipeline_guild_roles.json");
+
+    async fn handle(scene: &IntakeThreadScene, unit: &Value) {
+        let unit = vec![gateway_message_in_server(unit)];
+        let stats = unit_run(&scene.app, &unit);
+        handle_unit(&scene.app, &unit, &stats)
+            .await
+            .unwrap_or_else(|failure| panic!("{:#}", failure.error));
+    }
+
+    #[tokio::test]
+    async fn an_ignored_unit_in_an_intake_thread_gets_no_intake_turn() {
+        let unit = reply_to(
+            UNIT_ID,
+            reporter(),
+            "yes, exactly, the right one shows up first and then it is gone",
+            maintainer_finding(),
+        );
+        let scene =
+            IntakeThreadScene::open(vec![nuki_question(), maintainer_finding()], &unit).await;
+        scene.answer_category(&IGNORE_ON_TOP).await;
+        scene.answer_intake_turn_with_missing_fields().await;
+
+        handle(&scene, &unit).await;
+
+        assert_eq!(scene.sent_texts().await, Vec::<String>::new());
+        assert_eq!(scene.jev_purposes().await, vec!["category"]);
+        assert_eq!(
+            scene.event_data("unit.routed").await,
+            vec![unit_routed_data(&IGNORE_ON_TOP, "skip: ignored")]
+        );
+        assert_eq!(scene.open_intake().await, Some(scene.intake.clone()));
+    }
+
+    #[tokio::test]
+    async fn a_unit_in_an_intake_thread_is_classified_with_all_categories() {
+        let unit = thread_message(UNIT_ID, reporter(), "1.51.2");
+        let scene = IntakeThreadScene::open(vec![nuki_question()], &unit).await;
+        scene.answer_category(&BUG_REPORT_ON_TOP).await;
+        scene.answer_intake_turn_with_missing_fields().await;
+
+        handle(&scene, &unit).await;
+
+        assert_eq!(
+            scene.category_options().await,
+            vec![vec![
+                "help_request",
+                "bug_report",
+                "feature_request",
+                "chat",
+                "ignore"
+            ]]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_bug_report_unit_in_an_intake_thread_runs_the_intake_turn() {
+        let unit = thread_message(UNIT_ID, reporter(), "1.51.2");
+        let scene = IntakeThreadScene::open(vec![nuki_question()], &unit).await;
+        scene.answer_category(&BUG_REPORT_ON_TOP).await;
+        scene.answer_intake_turn_with_missing_fields().await;
+
+        handle(&scene, &unit).await;
+
+        assert_eq!(scene.sent_texts().await, vec![NUKI_ASKS_FOR_THE_PLATFORM]);
+        assert_eq!(
+            scene.jev_purposes().await,
+            vec!["category", "intake_fields"]
+        );
+        assert_eq!(
+            scene.event_data("unit.routed").await,
+            vec![unit_routed_data(&BUG_REPORT_ON_TOP, "continue the intake")]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_mention_of_nuki_in_an_intake_thread_runs_the_intake_turn_without_a_classification() {
+        let unit = mentioning_nuki(thread_message(
+            UNIT_ID,
+            reporter(),
+            &format!("<@{NUKI_USER_ID}> 1.51.2"),
+        ));
+        let scene = IntakeThreadScene::open(vec![nuki_question()], &unit).await;
+        scene.answer_intake_turn_with_missing_fields().await;
+
+        handle(&scene, &unit).await;
+
+        assert_eq!(scene.sent_texts().await, vec![NUKI_ASKS_FOR_THE_PLATFORM]);
+        assert_eq!(scene.jev_purposes().await, vec!["intake_fields"]);
+        assert_eq!(scene.event_data("unit.routed").await, Vec::<Value>::new());
+    }
 
     #[tokio::test]
     async fn nuki_role_id_is_the_role_whose_bot_is_nuki() {

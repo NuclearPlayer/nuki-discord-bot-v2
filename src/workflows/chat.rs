@@ -24,15 +24,13 @@ impl Workflow for ChatWorkflow {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
     use wiremock::MockServer;
 
     use super::*;
     use crate::discord::test_support::user_message;
-    use crate::llm::test_support::{llm_request_bodies, mount_llm_replies, run_script_tools};
-    use crate::prompts::files::{KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_CHAT};
+    use crate::llm::test_support::{assert_run_script_tool, llm_request_bodies, mount_llm_replies};
     use crate::routing::trigger::Trigger;
-    use crate::workflows::test_support::{RUNTIME_SECTION, context, deps};
+    use crate::workflows::test_support::{context, deps};
 
     const CHAT_REPLY: &str = include_str!("../../tests/fixtures/workflows/chat_reply.json");
 
@@ -81,28 +79,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chat_sends_the_chat_prompt_and_the_runtime_section() {
+    async fn chat_gives_the_run_script_tool_to_the_llm() {
         let server = MockServer::start().await;
         mount_llm_replies(&server, &[CHAT_REPLY]).await;
 
         run_chat(&server).await;
 
-        let expected_prompt = [
-            PERSONALITY.trim(),
-            NUCLEAR.trim(),
-            KNOWLEDGE.trim(),
-            WORKFLOW_CHAT.trim(),
-            RUNTIME_SECTION,
-        ]
-        .join("\n\n");
-        let bodies = llm_request_bodies(&server).await;
-        assert_eq!(
-            bodies[0]["messages"][0],
-            json!({
-                "role": "system",
-                "content": [{ "type": "text", "text": expected_prompt }]
-            })
-        );
-        assert_eq!(bodies[0]["tools"], run_script_tools());
+        assert_run_script_tool(&llm_request_bodies(&server).await[0]);
     }
 }

@@ -5,8 +5,6 @@ use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
 
-use crate::sandbox::declarations::tool_description;
-use crate::sandbox::test_support::echo_table;
 use crate::test_support::json_response;
 
 /// Rig's fixed extraction preamble, which `append_preamble` keeps before the system prompt.
@@ -102,22 +100,37 @@ fn tool_result(message: Message) -> ToolResult {
     result
 }
 
-pub(crate) fn run_script_tools() -> Value {
-    json!([{
-        "type": "function",
-        "function": {
-            "name": "run_script",
-            "description": tool_description(&echo_table()),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "The body of an async JS function."
-                    }
-                },
-                "required": ["code"]
+/// Returns the messages of the request `body` without the first message, the system prompt. The
+/// system prompt is prompt text.
+pub(crate) fn messages_after_system_prompt(body: &Value) -> Value {
+    Value::from(&body["messages"].as_array().unwrap()[1..])
+}
+
+/// Asserts that `run_script` is the only tool of the request `body`. Ignores the description of
+/// the tool, because the description is prompt text.
+pub(crate) fn assert_run_script_tool(body: &Value) {
+    let mut tools = body["tools"].clone();
+    tools[0]["function"]
+        .as_object_mut()
+        .unwrap()
+        .remove("description");
+    assert_eq!(
+        tools,
+        json!([{
+            "type": "function",
+            "function": {
+                "name": "run_script",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "code": {
+                            "type": "string",
+                            "description": "The body of an async JS function."
+                        }
+                    },
+                    "required": ["code"]
+                }
             }
-        }
-    }])
+        }])
+    );
 }

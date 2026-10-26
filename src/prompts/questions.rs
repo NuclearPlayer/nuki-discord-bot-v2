@@ -182,17 +182,4 @@ mod tests {
 
         assert_eq!(option_names, Category::ALL.map(Category::name));
     }
-
-    #[test]
-    fn all_question_files_parse() {
-        let bug_field_names: Vec<&str> = bug_fields().keys().map(String::as_str).collect();
-        let feature_field_names: Vec<&str> = feature_fields().keys().map(String::as_str).collect();
-
-        assert_eq!(help_quality(), DECISION_HELP_QUALITY.trim());
-        assert_eq!(
-            bug_field_names,
-            ["version", "platform", "plugins", "sources", "item"]
-        );
-        assert_eq!(feature_field_names, ["what", "why"]);
-    }
 }

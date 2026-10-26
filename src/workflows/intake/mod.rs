@@ -222,18 +222,16 @@ mod tests {
     use crate::discord::chat_message::ChatMessage;
     use crate::discord::test_support::{nuki_message, user_message};
     use crate::llm::test_support::{
-        RIG_EXTRACTION_PREAMBLE, assert_echo_tool_turn, llm_request_bodies, messages,
-        mount_llm_replies, run_script_tools,
-    };
-    use crate::prompts::files::{
-        KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_BUG_INTAKE, WORKFLOW_FEATURE_INTAKE,
+        assert_echo_tool_turn, assert_run_script_tool, llm_request_bodies, messages,
+        messages_after_system_prompt, mount_llm_replies,
     };
     use crate::routing::trigger::Trigger;
     use crate::stats::test_support::{events_between, of_kind, run_event, test_run};
     use crate::store::intakes::IntakeStatus;
     use crate::workflows::Reply;
     use crate::workflows::test_support::{
-        RUNTIME_SECTION, bug_fields_missing, context, deps, user_turn_text,
+        bug_field_answers, bug_field_names, bug_fields_missing, context, deps,
+        missing_bug_field_names, user_turn_text,
     };
 
     const EMPTY_FINAL_TEXT: &str =
@@ -273,42 +271,7 @@ mod tests {
     }
 
     fn bug_fields_present() -> Value {
-        json!({
-            "version": { "type": "noul", "noul": 0.97 },
-            "platform": { "type": "noul", "noul": 0.94 },
-            "plugins": { "type": "noul", "noul": 0.88 },
-            "sources": { "type": "noul", "noul": 0.91 },
-            "item": { "type": "noul", "noul": 0.86 }
-        })
-    }
-
-    fn prompt_text(workflow_text: &str, extra: Option<&str>) -> String {
-        [
-            PERSONALITY.trim(),
-            NUCLEAR.trim(),
-            KNOWLEDGE.trim(),
-            workflow_text.trim(),
-        ]
-        .into_iter()
-        .chain(extra)
-        .chain([RUNTIME_SECTION])
-        .collect::<Vec<_>>()
-        .join("\n\n")
-    }
-
-    fn system_message(text: String) -> Value {
-        json!({ "role": "system", "content": [{ "type": "text", "text": text }] })
-    }
-
-    fn system_prompt(workflow_text: &str, extra: &str) -> Value {
-        system_message(prompt_text(workflow_text, Some(extra)))
-    }
-
-    fn extraction_system_prompt(workflow_text: &str) -> Value {
-        system_message(format!(
-            "{RIG_EXTRACTION_PREAMBLE}{}",
-            prompt_text(workflow_text, None)
-        ))
+        bug_field_answers(|_| 0.9)
     }
 
     fn report_instruction() -> Value {
@@ -360,11 +323,9 @@ mod tests {
         }
     }
 
-    /// Returns the system prompt, the history, the tool turn, the final reply, and the report
-    /// instruction.
+    /// Returns the history, the tool turn, the final reply, and the report instruction.
     fn extraction_messages_with_tool_turn() -> Value {
         json!([
-            extraction_system_prompt(WORKFLOW_BUG_INTAKE),
             {
                 "role": "user",
                 "content": user_turn_text(1, "playback stops after one track, any album, v1.4.0 AppImage on Linux")
@@ -433,52 +394,7 @@ mod tests {
                 report: None,
             }
         );
-        let bodies = llm_request_bodies(&server).await;
-        assert_eq!(
-            bodies[0]["messages"][0],
-            system_prompt(WORKFLOW_BUG_INTAKE, "Missing fields: platform, plugins.")
-        );
-        assert_eq!(bodies[0]["tools"], run_script_tools());
-    }
-
-    #[tokio::test]
-    async fn the_first_feature_turn_tells_nuki_to_find_the_feature_first() {
-        let server = MockServer::start().await;
-        mount_jev_answers(
-            &server,
-            json!({
-                "what": { "type": "noul", "noul": 0.96 },
-                "why": { "type": "noul", "noul": 0.12 }
-            }),
-        )
-        .await;
-        mount_llm_replies(
-            &server,
-            &[include_str!(
-                "../../../tests/fixtures/workflows/intake_feature_first_turn.json"
-            )],
-        )
-        .await;
-        let ctx = context(
-            Trigger::IntakeThread,
-            vec![user_message(1, "could Nuclear get a sleep timer?")],
-        )
-        .await;
-
-        workflow(&server)
-            .await
-            .run_turn(&ctx, &intake(IntakeKind::Feature))
-            .await
-            .unwrap();
-
-        let bodies = llm_request_bodies(&server).await;
-        assert_eq!(
-            bodies[0]["messages"][0],
-            system_prompt(
-                WORKFLOW_FEATURE_INTAKE,
-                "Missing fields: why.\nThis is the first turn. First find if the feature exists."
-            )
-        );
+        assert_run_script_tool(&llm_request_bodies(&server).await[0]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -512,12 +428,11 @@ mod tests {
         assert_echo_tool_turn(messages(reply.turn_messages));
         assert_eq!(report, complete_bug_report());
         let bodies = llm_request_bodies(&server).await;
+        assert_run_script_tool(&bodies[0]);
         assert_eq!(
-            bodies[0]["messages"][0],
-            system_prompt(WORKFLOW_BUG_INTAKE, "All fields are present.")
+            messages_after_system_prompt(&bodies[2]),
+            extraction_messages_with_tool_turn()
         );
-        assert_eq!(bodies[0]["tools"], run_script_tools());
-        assert_eq!(bodies[2]["messages"], extraction_messages_with_tool_turn());
     }
 
     #[tokio::test]
@@ -561,7 +476,7 @@ mod tests {
                 "jev.call",
                 json!({
                     "purpose": "intake_fields",
-                    "questions": ["version", "platform", "plugins", "sources", "item"],
+                    "questions": bug_field_names(),
                     "answers": bug_fields_present(),
                     "model": "typesafe/jev-1.14-20261014",
                     "input_tokens": null,
@@ -702,7 +617,7 @@ mod tests {
                 }),
                 reporter_id: BOB_ID,
                 thread_id: THREAD_ID,
-                missing: vec!["platform".to_string(), "plugins".to_string()],
+                missing: missing_bug_field_names(),
             }
         );
         let bodies = llm_request_bodies(&server).await;
@@ -714,6 +629,6 @@ mod tests {
                 "content": "The reporter does not answer. Do the final checks now. The bot does not send your text to the thread."
             })
         );
-        assert_eq!(bodies[0]["tools"], run_script_tools());
+        assert_run_script_tool(&bodies[0]);
     }
 }

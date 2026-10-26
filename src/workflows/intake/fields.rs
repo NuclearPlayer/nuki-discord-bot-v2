@@ -70,13 +70,18 @@ fn probability_of_yes(answers: &IndexMap<String, Answer>, field: &str) -> anyhow
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use serde_json::Value;
+    use serde_json::{Map, Value};
     use wiremock::MockServer;
 
     use super::*;
-    use crate::decisions::test_support::{jev_request_bodies, mount_jev_answers};
+    use crate::decisions::client::JEV_MODEL;
+    use crate::decisions::test_support::{
+        jev_request_bodies, mount_jev_answers, without_instructions,
+    };
     use crate::stats::test_support::{events_between, run_event, test_run, unrecorded_run};
-    use crate::workflows::test_support::bug_fields_missing;
+    use crate::workflows::test_support::{
+        bug_field_names, bug_fields_missing, missing_bug_field_names,
+    };
 
     fn conversation() -> Vec<String> {
         vec![
@@ -102,14 +107,14 @@ mod tests {
         let missing = bug_fields_against(&server, &stats).await;
 
         let after = Utc::now();
-        assert_eq!(missing, ["platform", "plugins"]);
+        assert_eq!(missing, missing_bug_field_names());
         assert_eq!(
             events_between(&store, before, after).await,
             vec![run_event(
                 "jev.call",
                 json!({
                     "purpose": "intake_fields",
-                    "questions": ["version", "platform", "plugins", "sources", "item"],
+                    "questions": bug_field_names(),
                     "answers": bug_fields_missing(),
                     "model": "typesafe/jev-1.14-20261014",
                     "input_tokens": null,
@@ -128,10 +133,22 @@ mod tests {
 
         bug_fields_against(&server, &unrecorded_run().await).await;
 
-        let expected: Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/workflows/intake_bug_fields_request.json"
-        ))
-        .unwrap();
-        assert_eq!(jev_request_bodies(&server).await, [expected]);
+        let questions: Map<String, Value> = bug_field_names()
+            .into_iter()
+            .map(|name| (name, json!({ "type": "noul" })))
+            .collect();
+        let requests: Vec<Value> = jev_request_bodies(&server)
+            .await
+            .into_iter()
+            .map(without_instructions)
+            .collect();
+        assert_eq!(
+            requests,
+            [json!({
+                "model": JEV_MODEL,
+                "state": { "conversation": conversation() },
+                "questions": questions
+            })]
+        );
     }
 }

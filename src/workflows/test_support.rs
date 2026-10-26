@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{TimeZone, Utc};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use wiremock::MockServer;
 
 use super::{TurnContext, WorkflowDeps};
@@ -11,6 +11,7 @@ use crate::discord::chat_message::ChatMessage;
 use crate::discord::test_support::resolved;
 use crate::llm::agent::LlmClient;
 use crate::llm::selection::ActiveModel;
+use crate::prompts::questions::bug_fields;
 use crate::prompts::system::RuntimeContext;
 use crate::routing::trigger::Trigger;
 use crate::sandbox::runtime::{Sandbox, SandboxLimits};
@@ -28,23 +29,39 @@ pub(crate) async fn deps(server: &MockServer) -> WorkflowDeps {
     }
 }
 
-pub(crate) const RUNTIME_SECTION: &str = "## Current context\n\
-    \n\
-    You are Nuki, with the user ID 1700000000000000001. Users mention you with <@1700000000000000001>.\n\
-    Custom emoji of this server: none\n\
-    Current channel: #general\n\
-    Current time: 2026-10-19T12:40:00Z";
+/// Returns the names of the bug fields, in the file's sequence. The tests do not copy the names,
+/// because the names are prompt text.
+pub(crate) fn bug_field_names() -> Vec<String> {
+    bug_fields().keys().cloned().collect()
+}
 
-/// Returns Jev's answers for the bug fields. The answers are not in the file's sequence.
-/// The answer for `platform` is equal to one half.
+/// Returns Jev's answers for the bug fields, in the opposite of the file's sequence. The answer
+/// for the field at `index` is `probability(index)`.
+pub(crate) fn bug_field_answers(probability: impl Fn(usize) -> f64) -> Value {
+    let answers: Map<String, Value> = bug_field_names()
+        .into_iter()
+        .enumerate()
+        .rev()
+        .map(|(index, name)| (name, json!({ "type": "noul", "noul": probability(index) })))
+        .collect();
+    Value::Object(answers)
+}
+
+/// Returns Jev's answers for the bug fields, with the second and the third field missing. The
+/// answer for the second field is equal to one half. From the fourth field, the answers are a
+/// little above one half.
 pub(crate) fn bug_fields_missing() -> Value {
-    json!({
-        "item": { "type": "noul", "noul": 0.51 },
-        "plugins": { "type": "noul", "noul": 0.2 },
-        "version": { "type": "noul", "noul": 0.93 },
-        "sources": { "type": "noul", "noul": 0.8 },
-        "platform": { "type": "noul", "noul": 0.5 }
+    bug_field_answers(|index| match index {
+        0 => 0.93,
+        1 => 0.5,
+        2 => 0.2,
+        _ => 0.51,
     })
+}
+
+/// Returns the names of the fields that `bug_fields_missing` gives as missing.
+pub(crate) fn missing_bug_field_names() -> Vec<String> {
+    bug_field_names()[1..3].to_vec()
 }
 
 pub(crate) fn user_turn_text(id: u64, content: &str) -> String {

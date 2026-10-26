@@ -28,6 +28,15 @@ pub(crate) async fn mount_jev_answers_for(server: &MockServer, question: &str, a
         .await;
 }
 
+/// Returns the Jev request `body` without the instructions of its questions, because the
+/// instructions are prompt text.
+pub(crate) fn without_instructions(mut body: Value) -> Value {
+    for question in body["questions"].as_object_mut().unwrap().values_mut() {
+        question.as_object_mut().unwrap().remove("instructions");
+    }
+    body
+}
+
 pub(crate) async fn jev_request_bodies(server: &MockServer) -> Vec<Value> {
     server
         .received_requests()

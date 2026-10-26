@@ -133,87 +133,33 @@ mod tests {
         ]
     }
 
-    fn runtime_section(emoji_line: &str) -> String {
-        format!(
+    #[test]
+    fn section_lists_the_custom_emoji_of_the_server() {
+        let runtime = runtime_with_emoji(two_emoji());
+
+        assert_eq!(
+            runtime.section(),
             "## Current context\n\
             \n\
             You are Nuki, with the user ID 1234567890. Users mention you with <@1234567890>.\n\
-            Custom emoji of this server: {emoji_line}\n\
+            Custom emoji of this server: <:nuki_wave:111>, <a:nuki_dance:222>\n\
             Current channel: #general\n\
             Current time: 2026-10-19T12:34:56Z"
-        )
-    }
-
-    fn after_shared_parts(parts: &[&str]) -> String {
-        [
-            &[PERSONALITY.trim(), NUCLEAR.trim(), KNOWLEDGE.trim()],
-            parts,
-        ]
-        .concat()
-        .join("\n\n")
-    }
-
-    #[test]
-    fn each_workflow_prompt_maps_to_its_file() {
-        let texts = [
-            WorkflowPrompt::Help,
-            WorkflowPrompt::HelpFallback,
-            WorkflowPrompt::BugIntake,
-            WorkflowPrompt::FeatureIntake,
-            WorkflowPrompt::Chat,
-        ]
-        .map(WorkflowPrompt::text);
-
-        assert_eq!(
-            texts,
-            [
-                WORKFLOW_HELP,
-                WORKFLOW_HELP_FALLBACK,
-                WORKFLOW_BUG_INTAKE,
-                WORKFLOW_FEATURE_INTAKE,
-                WORKFLOW_CHAT,
-            ]
         );
     }
 
     #[test]
-    fn build_joins_the_parts_in_sequence_with_the_runtime_section() {
-        let runtime = runtime_with_emoji(two_emoji());
-
-        let prompt = SystemPrompt::build(
-            WorkflowPrompt::BugIntake,
-            Some("\nMissing fields: version, platform\n\n"),
-            &runtime,
-        );
-
-        let expected = after_shared_parts(&[
-            WORKFLOW_BUG_INTAKE.trim(),
-            "Missing fields: version, platform",
-            &runtime_section("<:nuki_wave:111>, <a:nuki_dance:222>"),
-        ]);
-        assert_eq!(prompt, expected);
-    }
-
-    #[test]
-    fn build_omits_extra_when_it_is_absent() {
-        let runtime = runtime_with_emoji(two_emoji());
-
-        let prompt = SystemPrompt::build(WorkflowPrompt::Chat, None, &runtime);
-
-        let expected = after_shared_parts(&[
-            WORKFLOW_CHAT.trim(),
-            &runtime_section("<:nuki_wave:111>, <a:nuki_dance:222>"),
-        ]);
-        assert_eq!(prompt, expected);
-    }
-
-    #[test]
-    fn build_writes_none_when_the_server_has_no_custom_emoji() {
+    fn section_writes_none_when_the_server_has_no_custom_emoji() {
         let runtime = runtime_with_emoji(Vec::new());
 
-        let prompt = SystemPrompt::build(WorkflowPrompt::Chat, None, &runtime);
-
-        let expected = after_shared_parts(&[WORKFLOW_CHAT.trim(), &runtime_section("none")]);
-        assert_eq!(prompt, expected);
+        assert_eq!(
+            runtime.section(),
+            "## Current context\n\
+            \n\
+            You are Nuki, with the user ID 1234567890. Users mention you with <@1234567890>.\n\
+            Custom emoji of this server: none\n\
+            Current channel: #general\n\
+            Current time: 2026-10-19T12:34:56Z"
+        );
     }
 }

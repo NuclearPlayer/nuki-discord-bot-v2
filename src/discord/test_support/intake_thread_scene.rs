@@ -13,7 +13,7 @@ use crate::routing::test_support::{category_answer, category_probabilities};
 use crate::store::intakes::{Intake, IntakeKind, NewIntake};
 use crate::store::test_support::all_events;
 use crate::test_support::json_response;
-use crate::workflows::test_support::bug_fields_missing;
+use crate::workflows::test_support::{bug_field_names, bug_fields_missing};
 
 const THREAD: &str = include_str!("../../../tests/fixtures/discord/history_thread.json");
 const PARENT_CHANNEL: &str =
@@ -87,7 +87,8 @@ impl IntakeThreadScene {
     }
 
     pub(crate) async fn answer_intake_turn_with_missing_fields(&self) {
-        mount_jev_answers_for(&self.server, "version", bug_fields_missing()).await;
+        let first_field = &bug_field_names()[0];
+        mount_jev_answers_for(&self.server, first_field, bug_fields_missing()).await;
         mount_llm_replies(&self.server, &[INTAKE_BUG_ASK]).await;
     }
 

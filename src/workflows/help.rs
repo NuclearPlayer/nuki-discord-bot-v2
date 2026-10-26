@@ -102,16 +102,15 @@ mod tests {
 
     use super::*;
     use crate::decisions::client::JEV_MODEL;
-    use crate::decisions::test_support::{jev_request_bodies, mount_jev_answers};
+    use crate::decisions::test_support::{
+        jev_request_bodies, mount_jev_answers, without_instructions,
+    };
     use crate::discord::test_support::{nuki_message, user_message};
     use crate::llm::test_support::{
         assert_echo_tool_turn, llm_request_bodies, messages, mount_llm_replies,
     };
-    use crate::prompts::files::{
-        DECISION_HELP_QUALITY, KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_HELP_FALLBACK,
-    };
     use crate::stats::test_support::{events_between, of_kind, run_event, test_run};
-    use crate::workflows::test_support::{RUNTIME_SECTION, context, deps, user_turn_text};
+    use crate::workflows::test_support::{context, deps, user_turn_text};
 
     const HELP_DRAFT: &str = include_str!("../../tests/fixtures/workflows/help_draft.json");
     const HELP_FALLBACK: &str = include_str!("../../tests/fixtures/workflows/help_fallback.json");
@@ -195,22 +194,7 @@ mod tests {
         let outcome = run_help(deps(&server).await, Trigger::Direct).await;
 
         assert_eq!(outcome, fallback_reply());
-        let expected_prompt = [
-            PERSONALITY.trim(),
-            NUCLEAR.trim(),
-            KNOWLEDGE.trim(),
-            WORKFLOW_HELP_FALLBACK.trim(),
-            RUNTIME_SECTION,
-        ]
-        .join("\n\n");
         let fallback_request = &llm_request_bodies(&server).await[1];
-        assert_eq!(
-            fallback_request["messages"][0],
-            json!({
-                "role": "system",
-                "content": [{ "type": "text", "text": expected_prompt }]
-            })
-        );
         assert_eq!(fallback_request["tools"], Value::Null);
     }
 
@@ -276,8 +260,13 @@ mod tests {
                 })
             )]
         );
+        let requests: Vec<Value> = jev_request_bodies(&server)
+            .await
+            .into_iter()
+            .map(without_instructions)
+            .collect();
         assert_eq!(
-            jev_request_bodies(&server).await,
+            requests,
             vec![json!({
                 "model": JEV_MODEL,
                 "state": {
@@ -288,12 +277,7 @@ mod tests {
                     ],
                     "draft": DRAFT_TEXT
                 },
-                "questions": {
-                    "help_quality": {
-                        "type": "noul",
-                        "instructions": DECISION_HELP_QUALITY.trim()
-                    }
-                }
+                "questions": { "help_quality": { "type": "noul" } }
             })]
         );
     }

@@ -116,12 +116,13 @@ mod tests {
     use chrono::Utc;
     use indexmap::indexmap;
     use serde_json::{Value, json};
-    use wiremock::matchers::{body_json, method, path};
-    use wiremock::{Mock, MockServer};
+    use wiremock::MockServer;
 
     use super::*;
-    use crate::decisions::client::{DECISIONS_PATH, JEV_MODEL};
-    use crate::decisions::test_support::{jev_response, mount_jev_answers};
+    use crate::decisions::client::JEV_MODEL;
+    use crate::decisions::test_support::{
+        jev_request_bodies, mount_jev_answers, without_instructions,
+    };
     use crate::routing::test_support::category_answer;
     use crate::stats::test_support::{events_between, run_event, test_run, unrecorded_run};
 
@@ -136,35 +137,31 @@ mod tests {
         ]
     }
 
-    fn request_with_options(option_names: &[&str]) -> Value {
-        let question = category();
-        let criteria: serde_json::Map<String, Value> = option_names
-            .iter()
-            .map(|name| (name.to_string(), json!(question.options[*name])))
+    /// Asserts that `server` got one category request with `option_names`. Ignores the
+    /// instructions and the descriptions of the options, because they are prompt text.
+    async fn assert_category_request(server: &MockServer, option_names: &[&str]) {
+        let [request]: [Value; 1] = jev_request_bodies(server).await.try_into().unwrap();
+        let mut request = without_instructions(request);
+        let criteria = request["questions"]["category"]
+            .as_object_mut()
+            .unwrap()
+            .remove("criteria")
+            .unwrap();
+        let criteria_names: Vec<&str> = criteria
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
             .collect();
-        json!({
-            "model": JEV_MODEL,
-            "state": { "messages": history(), "new_messages": new_lines() },
-            "questions": {
-                "category": {
-                    "type": "choice",
-                    "instructions": question.instructions,
-                    "criteria": criteria,
-                }
-            }
-        })
-    }
-
-    async fn jev_expecting(request: Value) -> MockServer {
-        let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .and(path(DECISIONS_PATH))
-            .and(body_json(request))
-            .respond_with(jev_response(category_answer(&[("bug_report", 1.0)])))
-            .expect(1)
-            .mount(&server)
-            .await;
-        server
+        assert_eq!(
+            request,
+            json!({
+                "model": JEV_MODEL,
+                "state": { "messages": history(), "new_messages": new_lines() },
+                "questions": { "category": { "type": "choice" } }
+            })
+        );
+        assert_eq!(criteria_names, option_names);
     }
 
     async fn jev_answering(answers: Value) -> MockServer {
@@ -195,33 +192,38 @@ mod tests {
 
     #[tokio::test]
     async fn direct_requests_omit_the_ignore_option() {
-        let server = jev_expecting(request_with_options(&[
-            "help_request",
-            "bug_report",
-            "feature_request",
-            "chat",
-        ]))
-        .await;
+        let server = jev_answering(category_answer(&[("bug_report", 1.0)])).await;
 
         classify_against(&server, ClassifiedTrigger::Direct)
             .await
             .unwrap();
+
+        assert_category_request(
+            &server,
+            &["help_request", "bug_report", "feature_request", "chat"],
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn unsolicited_requests_contain_all_options() {
-        let server = jev_expecting(request_with_options(&[
-            "help_request",
-            "bug_report",
-            "feature_request",
-            "chat",
-            "ignore",
-        ]))
-        .await;
+        let server = jev_answering(category_answer(&[("bug_report", 1.0)])).await;
 
         classify_against(&server, ClassifiedTrigger::Unsolicited)
             .await
             .unwrap();
+
+        assert_category_request(
+            &server,
+            &[
+                "help_request",
+                "bug_report",
+                "feature_request",
+                "chat",
+                "ignore",
+            ],
+        )
+        .await;
     }
 
     #[tokio::test]

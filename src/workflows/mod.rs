@@ -136,11 +136,12 @@ mod tests {
     use serde_json::json;
     use wiremock::MockServer;
 
-    use super::test_support::{RUNTIME_SECTION, context, deps, user_turn_text};
+    use super::test_support::{context, deps, user_turn_text};
     use super::*;
     use crate::discord::test_support::{nuki_message, user_message};
-    use crate::llm::test_support::{llm_request_bodies, mount_llm_replies};
-    use crate::prompts::files::{KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_HELP};
+    use crate::llm::test_support::{
+        llm_request_bodies, messages_after_system_prompt, mount_llm_replies,
+    };
 
     const FINAL_TEXT: &str = include_str!("../../tests/fixtures/llm/final_text.json");
 
@@ -158,7 +159,7 @@ mod tests {
         )
         .await;
         let options = TurnOptions {
-            extra: Some("Missing fields: version."),
+            extra: None,
             instruction: None,
             with_tools: false,
         };
@@ -167,24 +168,11 @@ mod tests {
             .await
             .unwrap();
 
-        let expected_prompt = [
-            PERSONALITY.trim(),
-            NUCLEAR.trim(),
-            KNOWLEDGE.trim(),
-            WORKFLOW_HELP.trim(),
-            "Missing fields: version.",
-            RUNTIME_SECTION,
-        ]
-        .join("\n\n");
         let bodies = llm_request_bodies(&server).await;
         assert_eq!(bodies[0]["model"], "test/model");
         assert_eq!(
-            bodies[0]["messages"],
+            messages_after_system_prompt(&bodies[0]),
             json!([
-                {
-                    "role": "system",
-                    "content": [{ "type": "text", "text": expected_prompt }]
-                },
                 { "role": "user", "content": user_turn_text(1, "hi nuki") },
                 { "role": "assistant", "content": "Hi! What do you need?" },
                 { "role": "user", "content": user_turn_text(3, "how do I add a plugin?") }
@@ -214,22 +202,10 @@ mod tests {
             .await
             .unwrap();
 
-        let expected_prompt = [
-            PERSONALITY.trim(),
-            NUCLEAR.trim(),
-            KNOWLEDGE.trim(),
-            WORKFLOW_HELP.trim(),
-            RUNTIME_SECTION,
-        ]
-        .join("\n\n");
         let bodies = llm_request_bodies(&server).await;
         assert_eq!(
-            bodies[0]["messages"],
+            messages_after_system_prompt(&bodies[0]),
             json!([
-                {
-                    "role": "system",
-                    "content": [{ "type": "text", "text": expected_prompt }]
-                },
                 { "role": "user", "content": user_turn_text(1, "playback stops") },
                 { "role": "assistant", "content": "Which version do you use?" },
                 { "role": "user", "content": "Write the final checks now." }

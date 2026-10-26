@@ -190,8 +190,8 @@ mod tests {
 
     use super::*;
     use crate::llm::test_support::{
-        RIG_EXTRACTION_PREAMBLE, assert_echo_tool_turn, llm_request_bodies, messages,
-        mount_llm_replies, run_script_tools,
+        RIG_EXTRACTION_PREAMBLE, assert_echo_tool_turn, assert_run_script_tool, llm_request_bodies,
+        messages, mount_llm_replies,
     };
     use crate::sandbox::runtime::SandboxLimits;
     use crate::sandbox::test_support::echo_table;
@@ -287,7 +287,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn run_sends_the_system_prompt_and_the_tool_declaration() {
+    async fn run_sends_the_system_prompt_and_the_run_script_tool() {
         let server = chat_server(&[FINAL_TEXT]).await;
 
         client(&server)
@@ -308,7 +308,7 @@ mod tests {
                 { "role": "user", "content": "Echo a = 1." }
             ])
         );
-        assert_eq!(body["tools"], run_script_tools());
+        assert_run_script_tool(body);
     }
 
     #[tokio::test(flavor = "multi_thread")]

@@ -21,9 +21,11 @@ use crate::routing::cooldown::Cooldowns;
 use crate::routing::dispatch::Thresholds;
 use crate::sandbox::ops::discord::DiscordOps;
 use crate::sandbox::ops::full_table;
+use crate::sandbox::ops::web::WebOps;
 use crate::sandbox::runtime::{Sandbox, SandboxLimits};
 use crate::stats::recorder::{RunStats, Stats};
 use crate::store::Store;
+use crate::web::client::TavilyClient;
 use crate::workflows::WorkflowDeps;
 use crate::workflows::chat::ChatWorkflow;
 use crate::workflows::help::HelpWorkflow;
@@ -35,6 +37,7 @@ const DISCORD_API_BASE: &str = "https://discord.com/api/v10";
 const GITHUB_API_BASE: &str = "https://api.github.com";
 const GITHUB_GRAPHQL_URL: &str = "https://api.github.com/graphql";
 const GITHUB_ORG: &str = "NuclearPlayer";
+const TAVILY_API_BASE: &str = "https://api.tavily.com";
 
 /// The Discord user of the bot.
 pub struct BotIdentity {
@@ -59,6 +62,7 @@ pub struct App {
     pub intake: IntakeWorkflow,
     pub repos: Arc<RepoManager>,
     pub github: Arc<GitHubClient>,
+    pub tavily: Arc<TavilyClient>,
     pub admin_log: AdminLog,
     pub rest: reqwest::Client,
 }
@@ -89,6 +93,10 @@ impl App {
             .ensure_cloned(&RepoId::nuclear())
             .await
             .with_context(|| format!("could not clone {NUCLEAR_REPO}"))?;
+
+        let tavily_api_base = Url::parse(TAVILY_API_BASE)
+            .with_context(|| format!("could not parse the Tavily API base {TAVILY_API_BASE}"))?;
+        let tavily = Arc::new(TavilyClient::new(tavily_api_base));
 
         let http = Arc::new(Http::new(&config.discord_token));
         let current_user = http
@@ -133,6 +141,7 @@ impl App {
             intake: IntakeWorkflow { deps },
             repos,
             github,
+            tavily,
             admin_log: AdminLog {
                 http: Arc::clone(&http),
                 channel_id: config.admin_log_channel_id,
@@ -160,6 +169,7 @@ impl App {
             discord_ops,
             Arc::clone(&self.repos),
             Arc::clone(&self.github),
+            WebOps::new(Arc::clone(&self.tavily)),
         );
         Arc::new(Sandbox::new(Arc::new(table), SandboxLimits::production()))
     }

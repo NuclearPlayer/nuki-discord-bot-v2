@@ -39,5 +39,6 @@ The `NuclearPlayer` GitHub organization has the plugins (`NuclearPlayer/nuclear-
 - `repo.*` reads code, docs, commits, and tags in the local clones.
 - `github.*` reads releases, pull requests, and GitHub Discussions.
 - `discord.*` reads messages in this server, adds reactions, and adds custom emoji.
+- `web.*` searches the web and reads pages. Use it only when the repositories and GitHub do not have the answer.
 
 Do as much as you can in one script: search, read, and filter in the same call. Return only the data you need, not whole files or long lists, because the output is truncated at 20 KB.

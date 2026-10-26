@@ -25,7 +25,7 @@ Nuki is a Rust Discord bot for the server of the Nuclear music player. `README.m
 9. `turn_context` (`src/discord/turn_context.rs`) makes the `TurnContext`: the history, the stored tool turns, the runtime context, and the sandbox for the server.
 10. The workflow calls `llm_turn` (`src/workflows/mod.rs`). `llm_turn` makes the LLM history with `build_history` (`src/discord/context.rs`) and the system prompt with `SystemPrompt::build` (`src/prompts/system.rs`).
 11. `LlmClient::run` (`src/llm/agent.rs`) runs the agent on OpenRouter with the active model. The agent can call the `run_script` tool 50 times at most. Then it must give its text.
-12. `run_script` (`src/llm/script_tool.rs`) runs the JS of the model in the QuickJS `Sandbox` (`src/sandbox/runtime.rs`). The script calls the `discord.*`, `repo.*`, and `github.*` operations.
+12. `run_script` (`src/llm/script_tool.rs`) runs the JS of the model in the QuickJS `Sandbox` (`src/sandbox/runtime.rs`). The script calls the `discord.*`, `repo.*`, `github.*`, and `web.*` operations. Tavily does the web requests of `web.*`.
 13. The workflow returns an `Outcome`. `apply_outcome` (`src/discord/reply.rs`) sends the reply in parts of 2000 characters or less. It stores the tool turn in `tool_turns`, with the ID of the first part.
 
 If a step fails, `process_unit` sends the error to the admin log channel with `AdminLog::report_error` (`src/admin/log.rs`). Nuki sends nothing in the channel of the unit.
@@ -113,6 +113,7 @@ Nuki keeps its state in these locations:
 | Add an environment variable | `Config` in `src/config.rs`. |
 | Change the repositories that Nuki can read | `catalog` in `src/app.rs`, `src/repos/catalog.rs`. |
 | Change the GitHub requests | `src/github/client.rs`. |
+| Change the Tavily requests of `web.search` and `web.fetch` | `src/web/client.rs`, `src/web/types.rs`. |
 | Change the Jev requests | `src/decisions/`. |
 | Change the intake timeout or the fetch interval | `src/tasks.rs`, `src/config.rs`. |
 
@@ -134,6 +135,7 @@ The bot is one crate, `nuki`.
 | `src/sandbox/` | The QuickJS runtime, the operation table, the TypeScript declarations, and the operations in `ops/`. |
 | `src/repos/` | The repository catalog, the clone and fetch manager, the `git` CLI wrapper, and the read operations on the clones. |
 | `src/github/` | The read-only GitHub client. It uses REST for releases and pull requests, and GraphQL for Discussions. |
+| `src/web/` | The Tavily client for web search and page text. It uses Tavily's keyless access, with no API key. |
 | `src/stats/` | The usage event types, and the recorder that writes the events of each run to `events`. |
 | `src/store/` | The SQLite store: the tool turns, the intakes, the settings, and the usage events. |
 | `src/admin/` | The report embeds and the error messages for the admin log channel. |
@@ -189,14 +191,14 @@ The operation table is the only source of the sandbox functions. Each `Operation
 
 Do these steps:
 
-1. Open the file of the namespace in `src/sandbox/ops/`: `discord/mod.rs`, `repo.rs`, or `github.rs`.
+1. Open the file of the namespace in `src/sandbox/ops/`: `discord/mod.rs`, `repo.rs`, `github.rs`, or `web/mod.rs`.
 2. Write a struct for the parameters, with `#[derive(Deserialize)]` and `#[serde(rename_all = "camelCase")]`.
 3. Write a function that returns an `Operation`.
 4. If the operation uses the shared client of the namespace, call `Operation::with_handle` in that function. If not, call `Operation::typed`. All current operations use `Operation::with_handle`.
 5. Give the namespace constant, the name in camelCase, a description of one line, and the `Param` list.
 6. Give the return type as a TypeScript type expression.
 7. Give the async Rust function.
-8. Add the function to the `vec!` of the table function: `discord_table`, `repo_table`, or `github_table`.
+8. Add the function to the `vec!` of the table function: `discord_table`, `repo_table`, `github_table`, or `web_table`.
 
 For a new namespace, write a new table function. Add it to `full_table` in `src/sandbox/ops/mod.rs`.
 

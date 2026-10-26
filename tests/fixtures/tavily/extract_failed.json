@@ -1,0 +1,11 @@
+{
+  "results": [],
+  "failed_results": [
+    {
+      "url": "https://thisdoesnotexist-xyz-123.example",
+      "error": "Failed to fetch url"
+    }
+  ],
+  "response_time": 0.26,
+  "request_id": "1f085df9-9192-430f-b9bd-c22bd0db33ec"
+}

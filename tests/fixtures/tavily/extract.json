@@ -1,0 +1,13 @@
+{
+  "results": [
+    {
+      "url": "https://example.com",
+      "title": "Example Domain",
+      "raw_content": "This domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes\n\n[Learn more](https://iana.org/help/example-domains)",
+      "images": []
+    }
+  ],
+  "failed_results": [],
+  "response_time": 0.01,
+  "request_id": "9eac7a30-44e9-450b-b069-33d2b9de4513"
+}

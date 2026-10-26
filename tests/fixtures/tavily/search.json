@@ -1,0 +1,26 @@
+{
+  "query": "nuclear music player",
+  "follow_up_questions": null,
+  "answer": null,
+  "images": [],
+  "results": [
+    {
+      "title": "Nuclear Music Player - Download",
+      "url": "https://nuclear-music-player.en.softonic.com",
+      "content": "Nuclear Music Player is an innovative audio software that redefines how users experience music across platforms. It combines streaming convenience with local pl",
+      "score": 0.9348309,
+      "raw_content": null,
+      "id": "ea43c2-00"
+    },
+    {
+      "title": "GitHub - nukeop/nuclear: Streaming music player that finds free music for you · GitHub",
+      "url": "https://github.com/nukeop/nuclear",
+      "content": "## Repository files navigation\n\nNuclear Music Player\n\n# Nuclear\n\nNuclear is a free, open-source music player without ads or tracking. Search for any song or art",
+      "score": 0.91760606,
+      "raw_content": null,
+      "id": "661720-01"
+    }
+  ],
+  "response_time": 0.0,
+  "request_id": "3b0fc020-555d-4d4b-92ae-1a6d03c47a12"
+}

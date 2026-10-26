@@ -23,6 +23,7 @@ use crate::routing::dispatch::Thresholds;
 use crate::stats::recorder::Stats;
 use crate::store::Store;
 use crate::test_support::discord_http;
+use crate::web::client::TavilyClient;
 use crate::workflows::chat::ChatWorkflow;
 use crate::workflows::help::HelpWorkflow;
 use crate::workflows::intake::IntakeWorkflow;
@@ -45,7 +46,7 @@ pub(crate) async fn test_app(server: &MockServer, repos_dir: &Path) -> App {
     let stats = Stats::new(store.events());
     let http = Arc::new(discord_http(server));
     let deps = deps(server).await;
-    let github_url = Url::parse(&server.uri()).unwrap();
+    let server_url = Url::parse(&server.uri()).unwrap();
     App {
         nuki: BotIdentity {
             user_id: NUKI_USER_ID,
@@ -65,9 +66,10 @@ pub(crate) async fn test_app(server: &MockServer, repos_dir: &Path) -> App {
         )),
         github: Arc::new(GitHubClient::new(
             "test-token".to_string(),
-            github_url.clone(),
-            github_url,
+            server_url.clone(),
+            server_url.clone(),
         )),
+        tavily: Arc::new(TavilyClient::new(server_url)),
         admin_log: AdminLog {
             http: Arc::clone(&http),
             channel_id: config.admin_log_channel_id,

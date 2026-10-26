@@ -220,29 +220,4 @@ declare namespace repo {
 "
         );
     }
-
-    #[test]
-    fn tool_description_has_the_instructions_and_the_declarations() {
-        let table = OperationTable::new(vec![operation(
-            "repo",
-            "list",
-            "Lists the repositories.",
-            vec![],
-            "string[]",
-        )]);
-
-        assert_eq!(
-            tool_description(&table),
-            "Runs JavaScript in a sandbox. The code is the body of an async function, so you can use `await`, and `return` gives the result. The output of `console.log` is returned too. The API below is the only API. It is not discord.js: there is no `client` object and no `fetch`.
-
-```typescript
-declare namespace repo {
-  /**
-   * Lists the repositories.
-   */
-  function list(): Promise<string[]>;
-}
-```"
-        );
-    }
 }

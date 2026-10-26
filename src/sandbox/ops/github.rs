@@ -126,7 +126,7 @@ fn limit_param() -> Param {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use wiremock::matchers::{any, body_partial_json, method, path, query_param};
+    use wiremock::matchers::{body_partial_json, method, path, query_param};
     use wiremock::{Mock, MockServer};
 
     use super::*;
@@ -134,7 +134,7 @@ mod tests {
         DISCUSSIONS, PLUGIN_REGISTRY_PULL_REQUESTS, RELEASES, client_for,
     };
     use crate::sandbox::runtime::{Sandbox, SandboxLimits, ScriptOutcome};
-    use crate::sandbox::test_support::value;
+    use crate::sandbox::test_support::{expect_no_request, value};
     use crate::test_support::json_response;
 
     async fn run(server: &MockServer, code: &str) -> ScriptOutcome {
@@ -176,14 +176,6 @@ mod tests {
                 },
             ]))
         );
-    }
-
-    async fn expect_no_request(server: &MockServer) {
-        Mock::given(any())
-            .respond_with(json_response(200, "[]"))
-            .expect(0)
-            .mount(server)
-            .await;
     }
 
     /// Calls `github.{operation}` with `repo` and asserts that it rejects the

@@ -15,6 +15,7 @@ pub mod store;
 pub mod tasks;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub mod web;
 pub mod workflows;
 
 use std::sync::Arc;

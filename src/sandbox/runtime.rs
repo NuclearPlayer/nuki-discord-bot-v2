@@ -288,6 +288,7 @@ fn op_function<'js>(
 }
 
 async fn call_operation(table: &OperationTable, name: &str, json: &str) -> Result<String, String> {
+    tracing::info!("{name}({json})");
     let operation = table
         .find(name)
         .ok_or_else(|| format!("unknown operation: {name}"))?;

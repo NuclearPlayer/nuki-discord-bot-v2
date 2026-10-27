@@ -221,6 +221,7 @@ mod tests {
     use crate::decisions::test_support::mount_jev_answers;
     use crate::discord::chat_message::ChatMessage;
     use crate::discord::test_support::{nuki_message, user_message};
+    use crate::llm::script_tool::with_reminder;
     use crate::llm::test_support::{
         assert_echo_tool_turn, assert_run_script_tool, llm_request_bodies, messages,
         messages_after_system_prompt, mount_llm_replies,
@@ -346,7 +347,11 @@ mod tests {
                     }
                 }]
             },
-            { "role": "tool", "tool_call_id": "call_1", "content": "{\"value\":{\"a\":1}}" },
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": with_reminder("{\"value\":{\"a\":1}}")
+            },
             {
                 "role": "assistant",
                 "content": "Nuclear v1.5.0 has a fix for gapless playback that possibly fixes this. Please update. I sent the report to the team."

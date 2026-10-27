@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
 
+use crate::llm::script_tool::with_reminder;
 use crate::test_support::json_response;
 
 /// Rig's fixed extraction preamble, which `append_preamble` keeps before the system prompt.
@@ -74,7 +75,9 @@ pub(crate) fn assert_echo_tool_turn(turn: Vec<Message>) {
     );
     assert_eq!(
         tool_result(result).content,
-        vec![ToolResultContent::text(r#"{"value":{"a":1}}"#)]
+        vec![ToolResultContent::text(with_reminder(
+            r#"{"value":{"a":1}}"#
+        ))]
     );
 }
 

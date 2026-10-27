@@ -25,7 +25,7 @@ Nuki is a Rust Discord bot for the server of the Nuclear music player. `README.m
 9. `turn_context` (`src/discord/turn_context.rs`) makes the `TurnContext`: the history, the stored tool turns, the runtime context, and the sandbox for the server.
 10. The workflow calls `llm_turn` (`src/workflows/mod.rs`). `llm_turn` makes the LLM history with `build_history` (`src/discord/context.rs`) and the system prompt with `SystemPrompt::build` (`src/prompts/system.rs`).
 11. `LlmClient::run` (`src/llm/agent.rs`) runs the agent on OpenRouter with the active model. The agent can call the `run_script` tool 50 times at most. Then it must give its text.
-12. `run_script` (`src/llm/script_tool.rs`) runs the JS of the model in the QuickJS `Sandbox` (`src/sandbox/runtime.rs`). The script calls the `discord.*`, `repo.*`, `github.*`, and `web.*` operations. Tavily does the web requests of `web.*`.
+12. `run_script` (`src/llm/script_tool.rs`) runs the JS of the model in the QuickJS `Sandbox` (`src/sandbox/runtime.rs`). The script calls the `discord.*`, `repo.*`, `github.*`, and `web.*` operations. Tavily does the web requests of `web.*`. `run_script` adds the reminder of `prompts/tools/reminder.md` after each result that the model gets.
 13. The workflow returns an `Outcome`. `apply_outcome` (`src/discord/reply.rs`) sends the reply in parts of 2000 characters or less. It stores the tool turn in `tool_turns`, with the ID of the first part.
 
 If a step fails, `process_unit` sends the error to the admin log channel with `AdminLog::report_error` (`src/admin/log.rs`). Nuki sends nothing in the channel of the unit.

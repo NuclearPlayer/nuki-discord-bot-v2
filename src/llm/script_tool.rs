@@ -6,6 +6,7 @@ use rig_core::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::prompts::files::TOOL_REMINDER;
 use crate::sandbox::declarations::tool_description;
 use crate::sandbox::runtime::{Sandbox, ScriptRun, truncate_tool_result};
 use crate::stats::duration_ms;
@@ -73,7 +74,13 @@ async fn run_script(
         result_bytes,
     };
     stats.record(None, Event::ToolCall(call)).await;
-    Ok(ToolOutput::text(result))
+    Ok(ToolOutput::text(with_reminder(&result)))
+}
+
+/// Adds the reminder of `prompts/tools/reminder.md` after `result`. The model gets this text as
+/// the result of the tool call.
+pub(crate) fn with_reminder(result: &str) -> String {
+    format!("{result}\n\n{}", TOOL_REMINDER.trim())
 }
 
 /// Returns the `tool.call` for a call with arguments that do not parse. No code ran, and no

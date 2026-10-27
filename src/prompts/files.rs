@@ -14,3 +14,4 @@ pub const DECISION_BUG_FIELDS: &str = include_str!("../../prompts/decisions/bug-
 pub const DECISION_FEATURE_FIELDS: &str = include_str!("../../prompts/decisions/feature-fields.md");
 
 pub const TOOL_RUN_SCRIPT: &str = include_str!("../../prompts/tools/run-script.md");
+pub const TOOL_REMINDER: &str = include_str!("../../prompts/tools/reminder.md");

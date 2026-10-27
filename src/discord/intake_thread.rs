@@ -13,7 +13,6 @@ use crate::discord::pipeline::{first_message, last_message};
 use crate::discord::reply::{AppliedTurn, ReportedBy, apply_intake_outcome, thread_name};
 use crate::discord::turn_context::turn_context;
 use crate::routing::category::Category;
-use crate::routing::trigger::Trigger;
 use crate::stats::event::{Event, IntakeOpened, ThreadCreated};
 use crate::stats::recorder::{EventScope, RunStats, run_id_of_timeout};
 use crate::store::intakes::{Intake, IntakeKind, NewIntake};
@@ -189,16 +188,7 @@ async fn thread_turn_context(
     stats: RunStats,
 ) -> anyhow::Result<TurnContext> {
     let history = fetch_thread_history(app, thread, intake).await?;
-    turn_context(
-        app,
-        thread.guild_id,
-        Trigger::IntakeThread,
-        &thread.name,
-        history,
-        unit_len,
-        stats,
-    )
-    .await
+    turn_context(app, thread.guild_id, &thread.name, history, unit_len, stats).await
 }
 
 /// Opens the intake in a thread, stores its record, and runs its first turn, in the run of
@@ -207,7 +197,6 @@ pub(super) async fn start_intake(
     app: &App,
     unit: &[Message],
     channel: &GuildChannel,
-    trigger: Trigger,
     kind: IntakeKind,
     stats: &RunStats,
 ) -> anyhow::Result<()> {
@@ -239,7 +228,6 @@ pub(super) async fn start_intake(
     let ctx = turn_context(
         app,
         guild_id,
-        trigger,
         &thread.channel.name,
         history,
         unit.len(),

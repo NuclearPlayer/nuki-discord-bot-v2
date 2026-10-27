@@ -4,13 +4,10 @@ use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::prompts::files::{
     KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_BUG_INTAKE, WORKFLOW_CHAT, WORKFLOW_FEATURE_INTAKE,
-    WORKFLOW_HELP, WORKFLOW_HELP_FALLBACK,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowPrompt {
-    Help,
-    HelpFallback,
     BugIntake,
     FeatureIntake,
     Chat,
@@ -19,8 +16,6 @@ pub enum WorkflowPrompt {
 impl WorkflowPrompt {
     pub fn text(self) -> &'static str {
         match self {
-            WorkflowPrompt::Help => WORKFLOW_HELP,
-            WorkflowPrompt::HelpFallback => WORKFLOW_HELP_FALLBACK,
             WorkflowPrompt::BugIntake => WORKFLOW_BUG_INTAKE,
             WorkflowPrompt::FeatureIntake => WORKFLOW_FEATURE_INTAKE,
             WorkflowPrompt::Chat => WORKFLOW_CHAT,

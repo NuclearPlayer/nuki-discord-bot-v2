@@ -1,5 +1,4 @@
 pub mod chat;
-pub mod help;
 pub mod intake;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -8,7 +7,6 @@ mod timed;
 pub use timed::timed;
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -20,14 +18,12 @@ use crate::discord::context::build_history;
 use crate::llm::agent::{LlmClient, TurnRequest, TurnResult};
 use crate::llm::selection::ActiveModel;
 use crate::prompts::system::{RuntimeContext, SystemPrompt, WorkflowPrompt};
-use crate::routing::trigger::Trigger;
 use crate::sandbox::runtime::Sandbox;
 use crate::stats::recorder::RunStats;
 use intake::report::Report;
 
 /// All the data from Discord that a workflow uses for one turn.
 pub struct TurnContext {
-    pub trigger: Trigger,
     pub channel_name: String,
     /// The history, oldest first. The messages of the unit are the last messages.
     pub history: Vec<ResolvedMessage>,
@@ -78,11 +74,6 @@ pub struct WorkflowDeps {
     pub llm: Arc<LlmClient>,
     pub jev: Arc<JevClient>,
     pub model: Arc<ActiveModel>,
-    pub help_quality_threshold: f64,
-}
-
-pub trait Workflow {
-    fn run(&self, ctx: &TurnContext) -> impl Future<Output = anyhow::Result<Outcome>> + Send;
 }
 
 pub struct TurnOptions<'a> {
@@ -92,8 +83,6 @@ pub struct TurnOptions<'a> {
     /// history goes to the model as history, and the prompt is a user message with the
     /// instruction.
     pub instruction: Option<&'a str>,
-    /// If `true`, the model gets the `run_script` tool.
-    pub with_tools: bool,
 }
 
 /// Runs the LLM step that all workflows share.
@@ -110,7 +99,7 @@ pub async fn llm_turn(
         system_prompt: SystemPrompt::build(workflow_prompt, options.extra, &ctx.runtime),
         history,
         prompt,
-        sandbox: options.with_tools.then(|| Arc::clone(&ctx.sandbox)),
+        sandbox: Some(Arc::clone(&ctx.sandbox)),
         stats: ctx.stats.clone(),
     };
     Ok(deps.llm.run(request).await?)
@@ -149,22 +138,18 @@ mod tests {
     async fn llm_turn_uses_the_last_message_as_the_prompt() {
         let server = MockServer::start().await;
         mount_llm_replies(&server, &[FINAL_TEXT]).await;
-        let ctx = context(
-            Trigger::Direct,
-            vec![
-                user_message(1, "hi nuki"),
-                nuki_message(2, "Hi! What do you need?"),
-                user_message(3, "how do I add a plugin?"),
-            ],
-        )
+        let ctx = context(vec![
+            user_message(1, "hi nuki"),
+            nuki_message(2, "Hi! What do you need?"),
+            user_message(3, "how do I add a plugin?"),
+        ])
         .await;
         let options = TurnOptions {
             extra: None,
             instruction: None,
-            with_tools: false,
         };
 
-        llm_turn(&deps(&server).await, &ctx, WorkflowPrompt::Help, options)
+        llm_turn(&deps(&server).await, &ctx, WorkflowPrompt::Chat, options)
             .await
             .unwrap();
 
@@ -184,21 +169,17 @@ mod tests {
     async fn llm_turn_sends_the_instruction_as_the_prompt() {
         let server = MockServer::start().await;
         mount_llm_replies(&server, &[FINAL_TEXT]).await;
-        let ctx = context(
-            Trigger::IntakeThread,
-            vec![
-                user_message(1, "playback stops"),
-                nuki_message(2, "Which version do you use?"),
-            ],
-        )
+        let ctx = context(vec![
+            user_message(1, "playback stops"),
+            nuki_message(2, "Which version do you use?"),
+        ])
         .await;
         let options = TurnOptions {
             extra: None,
             instruction: Some("Write the final checks now."),
-            with_tools: false,
         };
 
-        llm_turn(&deps(&server).await, &ctx, WorkflowPrompt::Help, options)
+        llm_turn(&deps(&server).await, &ctx, WorkflowPrompt::Chat, options)
             .await
             .unwrap();
 

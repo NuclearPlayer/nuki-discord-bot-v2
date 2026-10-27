@@ -1,18 +1,17 @@
-use super::{Outcome, Reply, TurnContext, TurnOptions, Workflow, WorkflowDeps, llm_turn};
+use super::{Outcome, Reply, TurnContext, TurnOptions, WorkflowDeps, llm_turn};
 use crate::prompts::system::WorkflowPrompt;
 
 pub struct ChatWorkflow {
     pub deps: WorkflowDeps,
 }
 
-impl Workflow for ChatWorkflow {
+impl ChatWorkflow {
     /// An empty text is a valid answer. If the text is empty, Nuki only reacted, and the bot
     /// sends nothing.
-    async fn run(&self, ctx: &TurnContext) -> anyhow::Result<Outcome> {
+    pub async fn run(&self, ctx: &TurnContext) -> anyhow::Result<Outcome> {
         let options = TurnOptions {
             extra: None,
             instruction: None,
-            with_tools: true,
         };
         let result = llm_turn(&self.deps, ctx, WorkflowPrompt::Chat, options).await?;
         if result.text.is_empty() {
@@ -28,21 +27,21 @@ mod tests {
 
     use super::*;
     use crate::discord::test_support::user_message;
-    use crate::llm::test_support::{assert_run_script_tool, llm_request_bodies, mount_llm_replies};
-    use crate::routing::trigger::Trigger;
+    use crate::llm::test_support::{
+        assert_echo_tool_turn, assert_run_script_tool, llm_request_bodies, messages,
+        mount_llm_replies,
+    };
     use crate::workflows::test_support::{context, deps};
 
     const CHAT_REPLY: &str = include_str!("../../tests/fixtures/workflows/chat_reply.json");
+    const RUN_SCRIPT_CALL: &str = include_str!("../../tests/fixtures/llm/run_script_call.json");
 
     async fn run_chat(server: &MockServer) -> Outcome {
         let workflow = ChatWorkflow {
             deps: deps(server).await,
         };
-        let ctx = context(
-            Trigger::Unsolicited,
-            vec![user_message(1, "my playlist is 900 hours of vaporwave")],
-        )
-        .await;
+        let message = user_message(1, "my playlist is 900 hours of vaporwave");
+        let ctx = context(vec![message]).await;
         workflow.run(&ctx).await.unwrap()
     }
 
@@ -86,5 +85,22 @@ mod tests {
         run_chat(&server).await;
 
         assert_run_script_tool(&llm_request_bodies(&server).await[0]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn chat_keeps_the_tool_turn_in_the_reply() {
+        let server = MockServer::start().await;
+        mount_llm_replies(&server, &[RUN_SCRIPT_CALL, CHAT_REPLY]).await;
+
+        let outcome = run_chat(&server).await;
+
+        let Outcome::Reply(reply) = outcome else {
+            panic!("expected a reply, got {outcome:?}");
+        };
+        assert_eq!(
+            reply.text,
+            "900 hours? Touch grass, then come back for hour 901."
+        );
+        assert_echo_tool_turn(messages(reply.turn_messages));
     }
 }

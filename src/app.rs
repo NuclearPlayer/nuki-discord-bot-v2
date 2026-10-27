@@ -28,7 +28,6 @@ use crate::store::Store;
 use crate::web::client::TavilyClient;
 use crate::workflows::WorkflowDeps;
 use crate::workflows::chat::ChatWorkflow;
-use crate::workflows::help::HelpWorkflow;
 use crate::workflows::intake::IntakeWorkflow;
 
 /// The base of the Jev and the models APIs. The LLM uses `OPENROUTER_BASE_URL`.
@@ -58,7 +57,6 @@ pub struct App {
     pub thresholds: Thresholds,
     pub cooldowns: Cooldowns,
     pub chat: ChatWorkflow,
-    pub help: HelpWorkflow,
     pub intake: IntakeWorkflow,
     pub repos: Arc<RepoManager>,
     pub github: Arc<GitHubClient>,
@@ -123,7 +121,6 @@ impl App {
             llm,
             jev: Arc::clone(&jev),
             model: Arc::clone(&active_model),
-            help_quality_threshold: config.threshold_help_quality,
         };
 
         let stats = Stats::new(store.events());
@@ -137,7 +134,6 @@ impl App {
             thresholds: Thresholds::from(&config),
             cooldowns: Cooldowns::new(Duration::from_secs(config.chat_cooldown_minutes * 60)),
             chat: ChatWorkflow { deps: deps.clone() },
-            help: HelpWorkflow { deps: deps.clone() },
             intake: IntakeWorkflow { deps },
             repos,
             github,

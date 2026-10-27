@@ -25,7 +25,6 @@ use crate::store::Store;
 use crate::test_support::discord_http;
 use crate::web::client::TavilyClient;
 use crate::workflows::chat::ChatWorkflow;
-use crate::workflows::help::HelpWorkflow;
 use crate::workflows::intake::IntakeWorkflow;
 use crate::workflows::test_support::deps;
 
@@ -58,7 +57,6 @@ pub(crate) async fn test_app(server: &MockServer, repos_dir: &Path) -> App {
         thresholds: Thresholds::from(&config),
         cooldowns: Cooldowns::new(Duration::from_secs(config.chat_cooldown_minutes * 60)),
         chat: ChatWorkflow { deps: deps.clone() },
-        help: HelpWorkflow { deps: deps.clone() },
         intake: IntakeWorkflow { deps },
         repos: Arc::new(RepoManager::new(
             repos_dir.to_path_buf(),

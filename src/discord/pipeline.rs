@@ -26,7 +26,7 @@ use crate::routing::trigger::{
 use crate::stats::event::Event;
 use crate::stats::recorder::{RunStats, run_id_of_unit};
 use crate::store::intakes::{Intake, IntakeKind};
-use crate::workflows::{Workflow, timed};
+use crate::workflows::timed;
 
 /// The workflow name for the admin log, if an error occurs before the bot selects a workflow.
 const ROUTING: &str = "routing";
@@ -164,7 +164,6 @@ async fn nuki_role_id(
 
 /// A unit that the classification sends to a workflow.
 struct Routed {
-    trigger: ClassifiedTrigger,
     category: Category,
     channel: GuildChannel,
     history: Vec<ResolvedMessage>,
@@ -247,7 +246,6 @@ async fn classify(
         return Ok(None);
     };
     Ok(Some(Routed {
-        trigger,
         category,
         channel: classified.channel,
         history: classified.history,
@@ -310,48 +308,35 @@ async fn run_category(
     routed: Routed,
     stats: &RunStats,
 ) -> anyhow::Result<()> {
-    let trigger = Trigger::from(routed.trigger);
     match routed.category {
-        Category::HelpRequest => run_workflow(app, &app.help, unit, routed, stats).await,
-        Category::Chat => run_workflow(app, &app.chat, unit, routed, stats).await,
+        Category::HelpRequest | Category::Chat => run_chat(app, unit, routed, stats).await,
         Category::BugReport => {
-            start_intake(app, unit, &routed.channel, trigger, IntakeKind::Bug, stats).await
+            start_intake(app, unit, &routed.channel, IntakeKind::Bug, stats).await
         }
         Category::FeatureRequest => {
-            start_intake(
-                app,
-                unit,
-                &routed.channel,
-                trigger,
-                IntakeKind::Feature,
-                stats,
-            )
-            .await
+            start_intake(app, unit, &routed.channel, IntakeKind::Feature, stats).await
         }
         Category::Ignore => Ok(()),
     }
 }
 
-async fn run_workflow(
+async fn run_chat(
     app: &App,
-    workflow: &impl Workflow,
     unit: &[Message],
     routed: Routed,
     stats: &RunStats,
 ) -> anyhow::Result<()> {
     let _typing = routed.channel.id.start_typing(&app.http);
-    let trigger = Trigger::from(routed.trigger);
     let ctx = turn_context(
         app,
         routed.channel.guild_id,
-        trigger,
         &routed.channel.name,
         routed.history,
         unit.len(),
         stats.clone(),
     )
     .await?;
-    let outcome = timed(stats, routed.category.name(), workflow.run(&ctx)).await?;
+    let outcome = timed(stats, routed.category.name(), app.chat.run(&ctx)).await?;
     let applied = AppliedTurn {
         channel_id: routed.channel.id,
         reply_to: Some(last_message(unit).id),

@@ -17,15 +17,6 @@ pub enum ClassifiedTrigger {
     Unsolicited,
 }
 
-impl From<ClassifiedTrigger> for Trigger {
-    fn from(trigger: ClassifiedTrigger) -> Trigger {
-        match trigger {
-            ClassifiedTrigger::Direct => Trigger::Direct,
-            ClassifiedTrigger::Unsolicited => Trigger::Unsolicited,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MessageFacts {
     pub author_is_bot: bool,

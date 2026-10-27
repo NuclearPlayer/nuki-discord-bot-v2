@@ -9,7 +9,6 @@ use serenity::model::id::GuildId;
 use crate::app::App;
 use crate::discord::attachments::ResolvedMessage;
 use crate::prompts::system::{CustomEmoji, RuntimeContext};
-use crate::routing::trigger::Trigger;
 use crate::stats::recorder::RunStats;
 use crate::workflows::TurnContext;
 
@@ -18,7 +17,6 @@ use crate::workflows::TurnContext;
 pub async fn turn_context(
     app: &App,
     guild_id: GuildId,
-    trigger: Trigger,
     channel_name: &str,
     history: Vec<ResolvedMessage>,
     unit_len: usize,
@@ -26,7 +24,6 @@ pub async fn turn_context(
 ) -> anyhow::Result<TurnContext> {
     let stored_turns = stored_turns(app, &history).await?;
     Ok(TurnContext {
-        trigger,
         channel_name: channel_name.to_string(),
         history,
         unit_len,

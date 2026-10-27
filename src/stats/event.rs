@@ -70,7 +70,6 @@ impl Event {
 #[serde(rename_all = "snake_case")]
 pub enum JevPurpose {
     Category,
-    HelpQuality,
     IntakeFields,
 }
 

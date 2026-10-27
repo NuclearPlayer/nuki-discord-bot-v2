@@ -19,8 +19,7 @@ const FIRST_FEATURE_TURN: &str = "This is the first turn. First find if the feat
 const INACTIVE_INSTRUCTION: &str = "The reporter does not answer. Do the final checks now. The bot does not send your text to the thread.";
 const REPORT_INSTRUCTION: &str = "Write the report of this conversation. Use \"unknown\" for information that the conversation does not give.";
 
-/// This type does not implement `Workflow`. The handler calls `run_turn` and
-/// `complete_inactive` with the intake record.
+/// The handler calls `run_turn` and `complete_inactive` with the intake record.
 pub struct IntakeWorkflow {
     pub deps: WorkflowDeps,
 }
@@ -46,7 +45,6 @@ impl IntakeWorkflow {
         let options = TurnOptions {
             extra: None,
             instruction: Some(INACTIVE_INSTRUCTION),
-            with_tools: true,
         };
         let result = self.turn(ctx, intake, options).await?;
         self.complete_report(ctx, intake, &result, missing).await
@@ -76,7 +74,6 @@ impl IntakeWorkflow {
         let options = TurnOptions {
             extra: Some(&extra),
             instruction: None,
-            with_tools: true,
         };
         let result = self.turn(ctx, intake, options).await?;
         Ok(Outcome::Intake {
@@ -93,7 +90,6 @@ impl IntakeWorkflow {
         let options = TurnOptions {
             extra: Some(ALL_FIELDS_PRESENT),
             instruction: None,
-            with_tools: true,
         };
         let result = self.turn(ctx, intake, options).await?;
         let report = self.complete_report(ctx, intake, &result, vec![]).await?;
@@ -226,7 +222,6 @@ mod tests {
         assert_echo_tool_turn, assert_run_script_tool, llm_request_bodies, messages,
         messages_after_system_prompt, mount_llm_replies,
     };
-    use crate::routing::trigger::Trigger;
     use crate::stats::test_support::{events_between, of_kind, run_event, test_run};
     use crate::store::intakes::IntakeStatus;
     use crate::workflows::Reply;
@@ -371,14 +366,11 @@ mod tests {
             )],
         )
         .await;
-        let ctx = context(
-            Trigger::IntakeThread,
-            vec![
-                user_message(1, "playback stops after one track"),
-                nuki_message(2, "Which Nuclear version do you use?"),
-                user_message(3, "v1.4.0, with MusicBrainz and YouTube, on any album"),
-            ],
-        )
+        let ctx = context(vec![
+            user_message(1, "playback stops after one track"),
+            nuki_message(2, "Which Nuclear version do you use?"),
+            user_message(3, "v1.4.0, with MusicBrainz and YouTube, on any album"),
+        ])
         .await;
 
         let outcome = workflow(&server)
@@ -411,7 +403,7 @@ mod tests {
             &[RUN_SCRIPT_CALL, BUG_FINAL_REPLY, BUG_REPORT_SUBMIT],
         )
         .await;
-        let ctx = context(Trigger::IntakeThread, complete_bug_conversation()).await;
+        let ctx = context(complete_bug_conversation()).await;
 
         let outcome = workflow(&server)
             .await
@@ -448,7 +440,7 @@ mod tests {
         let (store, stats) = test_run().await;
         let ctx = TurnContext {
             stats,
-            ..context(Trigger::IntakeThread, complete_bug_conversation()).await
+            ..context(complete_bug_conversation()).await
         };
         let before = Utc::now();
 
@@ -532,13 +524,10 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_final_text_stays_out_of_the_report_history() {
-        let ctx = context(
-            Trigger::IntakeThread,
-            vec![
-                user_message(1, "playback stops after one track, v1.4.0"),
-                nuki_message(2, "Which operating system are you on?"),
-            ],
-        )
+        let ctx = context(vec![
+            user_message(1, "playback stops after one track, v1.4.0"),
+            nuki_message(2, "Which operating system are you on?"),
+        ])
         .await;
         let last_turn = TurnResult {
             text: String::new(),
@@ -561,14 +550,11 @@ mod tests {
         let server = MockServer::start().await;
         mount_jev_answers(&server, bug_fields_missing()).await;
         mount_llm_replies(&server, &[BUG_INACTIVE_CHECKS, BUG_INACTIVE_REPORT_SUBMIT]).await;
-        let ctx = context(
-            Trigger::IntakeThread,
-            vec![
-                alice_message(1, "Bob, tell Nuki about your playback bug here."),
-                user_message(2, "playback stops after one track, v1.4.0"),
-                nuki_message(3, "Which operating system are you on?"),
-            ],
-        )
+        let ctx = context(vec![
+            alice_message(1, "Bob, tell Nuki about your playback bug here."),
+            user_message(2, "playback stops after one track, v1.4.0"),
+            nuki_message(3, "Which operating system are you on?"),
+        ])
         .await;
 
         let report = workflow(&server)
@@ -585,19 +571,16 @@ mod tests {
         let server = MockServer::start().await;
         mount_jev_answers(&server, bug_fields_missing()).await;
         mount_llm_replies(&server, &[BUG_INACTIVE_CHECKS, BUG_INACTIVE_REPORT_SUBMIT]).await;
-        let ctx = context(
-            Trigger::IntakeThread,
-            vec![
-                user_message(
-                    1,
-                    "playback stops after one track, v1.4.0, MusicBrainz and YouTube",
-                ),
-                nuki_message(
-                    2,
-                    "Which operating system are you on, and which plugins do you use?",
-                ),
-            ],
-        )
+        let ctx = context(vec![
+            user_message(
+                1,
+                "playback stops after one track, v1.4.0, MusicBrainz and YouTube",
+            ),
+            nuki_message(
+                2,
+                "Which operating system are you on, and which plugins do you use?",
+            ),
+        ])
         .await;
 
         let report = workflow(&server)

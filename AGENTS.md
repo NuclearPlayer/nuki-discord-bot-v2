@@ -21,7 +21,7 @@ Nuki is a Rust Discord bot for the server of the Nuclear music player. `README.m
    - The top category is `ignore`.
    - The probability of the top category is below its threshold, `THRESHOLD_HELP`, `THRESHOLD_BUG`, `THRESHOLD_FEATURE`, or `THRESHOLD_CHAT`.
    - The top category is `chat`, and the chat cooldown of the channel is active. If Nuki runs an unsolicited chat, the cooldown starts.
-8. `run_category` (`src/discord/pipeline.rs`) starts the workflow of the category: `HelpWorkflow`, `ChatWorkflow`, or `start_intake` for a bug report or a feature request.
+8. `run_category` (`src/discord/pipeline.rs`) starts the workflow of the category: `ChatWorkflow` for a help request or a chat, or `start_intake` for a bug report or a feature request.
 9. `turn_context` (`src/discord/turn_context.rs`) makes the `TurnContext`: the history, the stored tool turns, the runtime context, and the sandbox for the server.
 10. The workflow calls `llm_turn` (`src/workflows/mod.rs`). `llm_turn` makes the LLM history with `build_history` (`src/discord/context.rs`) and the system prompt with `SystemPrompt::build` (`src/prompts/system.rs`).
 11. `LlmClient::run` (`src/llm/agent.rs`) runs the agent on OpenRouter with the active model. The agent can call the `run_script` tool 50 times at most. Then it must give its text.
@@ -30,7 +30,7 @@ Nuki is a Rust Discord bot for the server of the Nuclear music player. `README.m
 
 If a step fails, `process_unit` sends the error to the admin log channel with `AdminLog::report_error` (`src/admin/log.rs`). Nuki sends nothing in the channel of the unit.
 
-The Help workflow sends Nuki's draft to Jev with `prompts/decisions/help-quality.md`. If Jev's probability is below `THRESHOLD_HELP_QUALITY`, Nuki sends nothing for an unsolicited unit. For a direct unit, Nuki sends a fallback text from `prompts/workflows/help-fallback.md`. If the text of the Chat workflow is empty, Nuki sends nothing.
+If the text of the Chat workflow is empty, Nuki sends nothing.
 
 ### Usage events
 
@@ -98,7 +98,7 @@ Nuki keeps its state in these locations:
 | Change how attachments go to the LLM | `src/discord/attachments.rs`, `src/discord/modality.rs`. |
 | Change the author names and roles | `src/discord/authors.rs`. |
 | Change the system prompt | `prompts/*.md`, `prompts/workflows/`. `SystemPrompt::build` and `RuntimeContext` in `src/prompts/system.rs`. |
-| Change a workflow | `src/workflows/help.rs`, `src/workflows/chat.rs`, `src/workflows/intake/`. |
+| Change a workflow | `src/workflows/chat.rs`, `src/workflows/intake/`. |
 | Change the fields of an intake | `prompts/decisions/bug-fields.md`, `prompts/decisions/feature-fields.md`. |
 | Change the report or its embed | `src/workflows/intake/report.rs`, `src/admin/reports.rs`. |
 | Change how Nuki sends a reply | `src/discord/reply.rs`. |
@@ -130,7 +130,7 @@ The bot is one crate, `nuki`.
 | `src/routing/` | The trigger rules, the debounce, the Jev classification, the thresholds, the chat cooldown, and the `Decision`. |
 | `src/decisions/` | The client and the types of the Jev Decisions API on OpenRouter. |
 | `src/llm/` | The OpenRouter LLM agent and its limits, the `run_script` tool, the model list, and the active model. |
-| `src/workflows/` | The `Workflow` trait, `TurnContext`, `Outcome`, and the Help, Chat, and intake workflows. |
+| `src/workflows/` | `TurnContext`, `Outcome`, `llm_turn`, and the Chat and intake workflows. |
 | `src/prompts/` | The compiled prompt files, the system prompt builder, and the parser of the Jev question files. |
 | `src/sandbox/` | The QuickJS runtime, the operation table, the TypeScript declarations, and the operations in `ops/`. |
 | `src/repos/` | The repository catalog, the clone and fetch manager, the `git` CLI wrapper, and the read operations on the clones. |
@@ -183,7 +183,6 @@ The prompts are Markdown files in `prompts/`. `src/prompts/files.rs` compiles ea
 
 - `category.md`: the text before the first `## ` heading is the question. Each `## ` heading is the name of one category, and the text below it is the description of that category. The headings must agree with `Category::name` in `src/routing/category.rs`.
 - `bug-fields.md` and `feature-fields.md`: each `## ` heading is the name of one yes-or-no question, and the text below it is the question. If the file has text before the first heading, the parser rejects the file.
-- `help-quality.md`: all the text of the file is one yes-or-no question.
 
 ## Add a sandbox operation
 

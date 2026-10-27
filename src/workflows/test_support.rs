@@ -13,7 +13,6 @@ use crate::llm::agent::LlmClient;
 use crate::llm::selection::ActiveModel;
 use crate::prompts::questions::bug_fields;
 use crate::prompts::system::RuntimeContext;
-use crate::routing::trigger::Trigger;
 use crate::sandbox::runtime::{Sandbox, SandboxLimits};
 use crate::sandbox::test_support::echo_table;
 use crate::stats::test_support::unrecorded_run;
@@ -25,7 +24,6 @@ pub(crate) async fn deps(server: &MockServer) -> WorkflowDeps {
         llm: Arc::new(LlmClient::new("test-key", &server.uri())),
         jev: Arc::new(JevClient::new("jev-key".to_string(), server.uri())),
         model: Arc::new(ActiveModel::load(settings, "test/model").await.unwrap()),
-        help_quality_threshold: 0.7,
     }
 }
 
@@ -70,9 +68,8 @@ pub(crate) fn user_turn_text(id: u64, content: &str) -> String {
     )
 }
 
-pub(crate) async fn context(trigger: Trigger, messages: Vec<ChatMessage>) -> TurnContext {
+pub(crate) async fn context(messages: Vec<ChatMessage>) -> TurnContext {
     TurnContext {
-        trigger,
         channel_name: "general".to_string(),
         history: messages
             .into_iter()

@@ -20,8 +20,6 @@ pub struct Config {
     pub threshold_feature: f64,
     #[serde(default = "default_threshold")]
     pub threshold_chat: f64,
-    #[serde(default = "default_threshold")]
-    pub threshold_help_quality: f64,
     #[serde(default = "default_intake_timeout_hours")]
     pub intake_timeout_hours: u64,
     #[serde(default = "default_repo_fetch_interval_minutes")]
@@ -115,7 +113,6 @@ mod tests {
                 threshold_bug: 0.7,
                 threshold_feature: 0.7,
                 threshold_chat: 0.7,
-                threshold_help_quality: 0.7,
                 intake_timeout_hours: 24,
                 repo_fetch_interval_minutes: 15,
                 debounce_seconds: 3,
@@ -133,7 +130,6 @@ mod tests {
             ("THRESHOLD_BUG", "0.2"),
             ("THRESHOLD_FEATURE", "0.3"),
             ("THRESHOLD_CHAT", "0.4"),
-            ("THRESHOLD_HELP_QUALITY", "0.5"),
             ("INTAKE_TIMEOUT_HOURS", "48"),
             ("REPO_FETCH_INTERVAL_MINUTES", "60"),
             ("DEBOUNCE_SECONDS", "10"),
@@ -155,7 +151,6 @@ mod tests {
                 threshold_bug: 0.2,
                 threshold_feature: 0.3,
                 threshold_chat: 0.4,
-                threshold_help_quality: 0.5,
                 intake_timeout_hours: 48,
                 repo_fetch_interval_minutes: 60,
                 debounce_seconds: 10,

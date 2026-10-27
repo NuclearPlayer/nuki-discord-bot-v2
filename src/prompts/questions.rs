@@ -3,9 +3,7 @@ use std::sync::LazyLock;
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use crate::prompts::files::{
-    DECISION_BUG_FIELDS, DECISION_CATEGORY, DECISION_FEATURE_FIELDS, DECISION_HELP_QUALITY,
-};
+use crate::prompts::files::{DECISION_BUG_FIELDS, DECISION_CATEGORY, DECISION_FEATURE_FIELDS};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChoiceQuestion {
@@ -66,15 +64,9 @@ pub fn parse_noul_list(markdown: &str) -> Result<IndexMap<String, String>, Quest
     Ok(sections.headed)
 }
 
-pub fn parse_noul(markdown: &str) -> String {
-    markdown.trim().to_string()
-}
-
 static CATEGORY: LazyLock<ChoiceQuestion> = LazyLock::new(|| {
     parse_choice(DECISION_CATEGORY).expect("category.md is a question with options")
 });
-
-static HELP_QUALITY: LazyLock<String> = LazyLock::new(|| parse_noul(DECISION_HELP_QUALITY));
 
 static BUG_FIELDS: LazyLock<IndexMap<String, String>> = LazyLock::new(|| {
     parse_noul_list(DECISION_BUG_FIELDS).expect("bug-fields.md is a list of questions")
@@ -86,10 +78,6 @@ static FEATURE_FIELDS: LazyLock<IndexMap<String, String>> = LazyLock::new(|| {
 
 pub fn category() -> &'static ChoiceQuestion {
     &CATEGORY
-}
-
-pub fn help_quality() -> &'static str {
-    &HELP_QUALITY
 }
 
 pub fn bug_fields() -> &'static IndexMap<String, String> {

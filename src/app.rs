@@ -21,6 +21,7 @@ use crate::routing::cooldown::Cooldowns;
 use crate::routing::dispatch::Thresholds;
 use crate::sandbox::ops::discord::DiscordOps;
 use crate::sandbox::ops::full_table;
+use crate::sandbox::ops::reports::ReportsOps;
 use crate::sandbox::ops::web::WebOps;
 use crate::sandbox::runtime::{Sandbox, SandboxLimits};
 use crate::stats::recorder::{RunStats, Stats};
@@ -28,7 +29,6 @@ use crate::store::Store;
 use crate::web::client::TavilyClient;
 use crate::workflows::WorkflowDeps;
 use crate::workflows::chat::ChatWorkflow;
-use crate::workflows::intake::IntakeWorkflow;
 
 /// The base of the Jev and the models APIs. The LLM uses `OPENROUTER_BASE_URL`.
 const OPENROUTER_URL: &str = "https://openrouter.ai";
@@ -57,7 +57,6 @@ pub struct App {
     pub thresholds: Thresholds,
     pub cooldowns: Cooldowns,
     pub chat: ChatWorkflow,
-    pub intake: IntakeWorkflow,
     pub repos: Arc<RepoManager>,
     pub github: Arc<GitHubClient>,
     pub tavily: Arc<TavilyClient>,
@@ -133,8 +132,7 @@ impl App {
             classifier: Classifier::new(jev),
             thresholds: Thresholds::from(&config),
             cooldowns: Cooldowns::new(Duration::from_secs(config.chat_cooldown_minutes * 60)),
-            chat: ChatWorkflow { deps: deps.clone() },
-            intake: IntakeWorkflow { deps },
+            chat: ChatWorkflow { deps },
             repos,
             github,
             tavily,
@@ -159,6 +157,11 @@ impl App {
             api_base: DISCORD_API_BASE.to_string(),
             bot_token: self.config.discord_token.clone(),
             guild_id: guild_id.get(),
+            stats: stats.clone(),
+        };
+        let reports_ops = ReportsOps {
+            http: Arc::clone(&self.http),
+            admin_log_channel_id: self.config.admin_log_channel_id,
             stats,
         };
         let table = full_table(
@@ -166,6 +169,7 @@ impl App {
             Arc::clone(&self.repos),
             Arc::clone(&self.github),
             WebOps::new(Arc::clone(&self.tavily)),
+            reports_ops,
         );
         Arc::new(Sandbox::new(Arc::new(table), SandboxLimits::production()))
     }

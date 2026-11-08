@@ -34,9 +34,11 @@ pub struct DiscordOps {
 }
 
 #[derive(Debug, Error)]
-pub(super) enum DiscordOpError {
+pub(crate) enum DiscordOpError {
     #[error("invalid id: {0}")]
     InvalidId(String),
+    #[error("the channel is not a channel of the server: {0}")]
+    NotInServer(u64),
     #[error("invalid emoji: {0}")]
     InvalidEmoji(String),
     #[error("attachment not found: {0}")]
@@ -288,7 +290,7 @@ fn find_attachment<'a>(
 }
 
 /// Parses a Discord ID. Zero is not an ID, because Serenity panics on it.
-fn parse_id(value: &str) -> Result<u64, DiscordOpError> {
+pub(crate) fn parse_id(value: &str) -> Result<u64, DiscordOpError> {
     value
         .parse::<NonZeroU64>()
         .map(NonZeroU64::get)

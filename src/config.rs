@@ -15,13 +15,7 @@ pub struct Config {
     #[serde(default = "default_threshold")]
     pub threshold_help: f64,
     #[serde(default = "default_threshold")]
-    pub threshold_bug: f64,
-    #[serde(default = "default_threshold")]
-    pub threshold_feature: f64,
-    #[serde(default = "default_threshold")]
     pub threshold_chat: f64,
-    #[serde(default = "default_intake_timeout_hours")]
-    pub intake_timeout_hours: u64,
     #[serde(default = "default_repo_fetch_interval_minutes")]
     pub repo_fetch_interval_minutes: u64,
     #[serde(default = "default_debounce_seconds")]
@@ -40,10 +34,6 @@ fn default_chat_cooldown_minutes() -> u64 {
 
 fn default_threshold() -> f64 {
     0.7
-}
-
-fn default_intake_timeout_hours() -> u64 {
-    24
 }
 
 fn default_repo_fetch_interval_minutes() -> u64 {
@@ -110,10 +100,7 @@ mod tests {
                 context_messages: 15,
                 chat_cooldown_minutes: 15,
                 threshold_help: 0.7,
-                threshold_bug: 0.7,
-                threshold_feature: 0.7,
                 threshold_chat: 0.7,
-                intake_timeout_hours: 24,
                 repo_fetch_interval_minutes: 15,
                 debounce_seconds: 3,
                 data_dir: PathBuf::from("/data"),
@@ -127,10 +114,7 @@ mod tests {
             ("CONTEXT_MESSAGES", "30"),
             ("CHAT_COOLDOWN_MINUTES", "5"),
             ("THRESHOLD_HELP", "0.1"),
-            ("THRESHOLD_BUG", "0.2"),
-            ("THRESHOLD_FEATURE", "0.3"),
             ("THRESHOLD_CHAT", "0.4"),
-            ("INTAKE_TIMEOUT_HOURS", "48"),
             ("REPO_FETCH_INTERVAL_MINUTES", "60"),
             ("DEBOUNCE_SECONDS", "10"),
             ("DATA_DIR", "/tmp/nuki"),
@@ -148,10 +132,7 @@ mod tests {
                 context_messages: 30,
                 chat_cooldown_minutes: 5,
                 threshold_help: 0.1,
-                threshold_bug: 0.2,
-                threshold_feature: 0.3,
                 threshold_chat: 0.4,
-                intake_timeout_hours: 48,
                 repo_fetch_interval_minutes: 60,
                 debounce_seconds: 10,
                 data_dir: PathBuf::from("/tmp/nuki"),

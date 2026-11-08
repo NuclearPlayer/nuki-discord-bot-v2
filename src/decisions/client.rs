@@ -213,7 +213,7 @@ mod tests {
         stats: &RunStats,
     ) -> Result<IndexMap<String, Answer>, DecisionError> {
         JevClient::new("test-key".to_string(), server.uri())
-            .decide(state(), questions(), stats, JevPurpose::IntakeFields)
+            .decide(state(), questions(), stats, JevPurpose::Category)
             .await
     }
 
@@ -231,7 +231,7 @@ mod tests {
             vec![run_event(
                 "jev.call",
                 json!({
-                    "purpose": "intake_fields",
+                    "purpose": "category",
                     "questions": ["category", "has_version"],
                     "answers": {
                         "category": {
@@ -279,7 +279,7 @@ mod tests {
             vec![run_event(
                 "jev.call",
                 json!({
-                    "purpose": "intake_fields",
+                    "purpose": "category",
                     "questions": ["category", "has_version"],
                     "answers": null,
                     "model": null,

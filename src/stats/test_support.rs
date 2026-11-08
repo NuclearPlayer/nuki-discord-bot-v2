@@ -74,14 +74,6 @@ pub(crate) async fn events_between(
         .collect()
 }
 
-/// Returns the events of `kind` in `events`.
-pub(crate) fn of_kind(events: Vec<RunEvent>, kind: &str) -> Vec<RunEvent> {
-    events
-        .into_iter()
-        .filter(|event| event.kind == kind)
-        .collect()
-}
-
 /// Returns the `duration_ms` of the only event of `kind` in `store`.
 pub(crate) async fn duration_of(store: &Store, kind: &str) -> u64 {
     let rows: Vec<_> = all_events(store)

@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use crate::prompts::files::{DECISION_BUG_FIELDS, DECISION_CATEGORY, DECISION_FEATURE_FIELDS};
+use crate::prompts::files::DECISION_CATEGORY;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChoiceQuestion {
@@ -15,8 +15,6 @@ pub struct ChoiceQuestion {
 pub enum QuestionError {
     #[error("the question has no options")]
     NoOptions,
-    #[error("the question list has text before the first heading")]
-    TextBeforeFirstHeading,
 }
 
 /// A Markdown text, divided at each line that starts with `## `.
@@ -56,36 +54,12 @@ pub fn parse_choice(markdown: &str) -> Result<ChoiceQuestion, QuestionError> {
     })
 }
 
-pub fn parse_noul_list(markdown: &str) -> Result<IndexMap<String, String>, QuestionError> {
-    let sections = Sections::parse(markdown);
-    if !sections.preamble.is_empty() {
-        return Err(QuestionError::TextBeforeFirstHeading);
-    }
-    Ok(sections.headed)
-}
-
 static CATEGORY: LazyLock<ChoiceQuestion> = LazyLock::new(|| {
     parse_choice(DECISION_CATEGORY).expect("category.md is a question with options")
 });
 
-static BUG_FIELDS: LazyLock<IndexMap<String, String>> = LazyLock::new(|| {
-    parse_noul_list(DECISION_BUG_FIELDS).expect("bug-fields.md is a list of questions")
-});
-
-static FEATURE_FIELDS: LazyLock<IndexMap<String, String>> = LazyLock::new(|| {
-    parse_noul_list(DECISION_FEATURE_FIELDS).expect("feature-fields.md is a list of questions")
-});
-
 pub fn category() -> &'static ChoiceQuestion {
     &CATEGORY
-}
-
-pub fn bug_fields() -> &'static IndexMap<String, String> {
-    &BUG_FIELDS
-}
-
-pub fn feature_fields() -> &'static IndexMap<String, String> {
-    &FEATURE_FIELDS
 }
 
 #[cfg(test)]
@@ -131,37 +105,6 @@ mod tests {
         let question = parse_choice("Which fruit does the author want?\n\nNo headings here.\n");
 
         assert_eq!(question, Err(QuestionError::NoOptions));
-    }
-
-    #[test]
-    fn parse_noul_list_reads_each_question() {
-        let markdown = "## colour\n\
-            \n\
-            Does the conversation state the colour?\n\
-            \n\
-            ## size\n\
-            Does the conversation state the size?\n\
-            \n";
-
-        let questions = parse_noul_list(markdown);
-
-        assert_eq!(
-            questions,
-            Ok(owned_map([
-                ("colour", "Does the conversation state the colour?"),
-                ("size", "Does the conversation state the size?"),
-            ]))
-        );
-    }
-
-    #[test]
-    fn parse_noul_list_fails_with_text_before_the_first_heading() {
-        let markdown =
-            "Shared instructions.\n\n## colour\n\nDoes the conversation state the colour?\n";
-
-        let questions = parse_noul_list(markdown);
-
-        assert_eq!(questions, Err(QuestionError::TextBeforeFirstHeading));
     }
 
     #[test]

@@ -4,6 +4,7 @@ mod views;
 use std::sync::Arc;
 
 pub use client::DiscordOps;
+pub(crate) use client::{DiscordOpError, parse_id};
 use client::{EmojiParams, ListParams, MessageParams, ReactionParams, SearchParams};
 
 use crate::sandbox::operation::{Operation, OperationTable, Param};

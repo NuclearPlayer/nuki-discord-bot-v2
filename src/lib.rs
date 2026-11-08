@@ -30,7 +30,7 @@ use config::Config;
 use discord::handler::Handler;
 use discord::pipeline::spawn_unit_reader;
 use routing::debounce::Debouncer;
-use tasks::{spawn_intake_timeout, spawn_repo_fetch};
+use tasks::spawn_repo_fetch;
 
 /// Builds the services, starts the background tasks, and starts the Discord client.
 pub async fn run() -> anyhow::Result<()> {
@@ -48,7 +48,6 @@ pub async fn run() -> anyhow::Result<()> {
     let debouncer = Debouncer::new(quiet, units_sender);
     spawn_unit_reader(Arc::clone(&app), units);
     spawn_repo_fetch(Arc::clone(&app.repos), fetch_period);
-    spawn_intake_timeout(Arc::clone(&app));
 
     let intents = GatewayIntents::GUILDS
         | GatewayIntents::GUILD_MESSAGES

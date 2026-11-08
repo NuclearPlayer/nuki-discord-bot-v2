@@ -1,5 +1,3 @@
-pub(crate) mod intake_thread_scene;
-
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,7 +23,6 @@ use crate::store::Store;
 use crate::test_support::discord_http;
 use crate::web::client::TavilyClient;
 use crate::workflows::chat::ChatWorkflow;
-use crate::workflows::intake::IntakeWorkflow;
 use crate::workflows::test_support::deps;
 
 pub(crate) const NUKI_USER_ID: u64 = 1700000000000000001;
@@ -56,8 +53,7 @@ pub(crate) async fn test_app(server: &MockServer, repos_dir: &Path) -> App {
         classifier: Classifier::new(Arc::clone(&deps.jev)),
         thresholds: Thresholds::from(&config),
         cooldowns: Cooldowns::new(Duration::from_secs(config.chat_cooldown_minutes * 60)),
-        chat: ChatWorkflow { deps: deps.clone() },
-        intake: IntakeWorkflow { deps },
+        chat: ChatWorkflow { deps },
         repos: Arc::new(RepoManager::new(
             repos_dir.to_path_buf(),
             RepoCatalog::new(vec![]),

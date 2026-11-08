@@ -4,15 +4,6 @@ use serde::Serialize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Trigger {
-    IntakeThread,
-    Direct,
-    Unsolicited,
-}
-
-/// A trigger for a unit that Jev classifies. In an intake thread, Jev classifies a unit as
-/// `Unsolicited` when the unit does not address Nuki.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClassifiedTrigger {
     Direct,
     Unsolicited,
 }
@@ -22,7 +13,6 @@ pub struct MessageFacts {
     pub author_is_bot: bool,
     pub is_system: bool,
     pub is_dm: bool,
-    pub in_open_intake_thread: bool,
     /// A mention of Nuki's user.
     pub mentions_nuki: bool,
     /// A mention of Nuki's managed role.
@@ -33,9 +23,6 @@ pub struct MessageFacts {
 pub fn trigger_of(facts: &MessageFacts) -> Option<Trigger> {
     if facts.author_is_bot || facts.is_system || facts.is_dm {
         return None;
-    }
-    if facts.in_open_intake_thread {
-        return Some(Trigger::IntakeThread);
     }
     if addresses_nuki(facts) {
         return Some(Trigger::Direct);
@@ -48,19 +35,10 @@ fn addresses_nuki(facts: &MessageFacts) -> bool {
     facts.mentions_nuki || facts.mentions_nuki_role || facts.replies_to_nuki
 }
 
-/// Returns `true` if a message of the unit mentions Nuki, mentions Nuki's managed role, or
-/// replies to Nuki.
-pub fn unit_addresses_nuki(unit: &[MessageFacts]) -> bool {
-    unit.iter().any(addresses_nuki)
-}
-
 pub fn trigger_of_unit(unit: &[MessageFacts]) -> Option<Trigger> {
     let triggers: Vec<Trigger> = unit.iter().filter_map(trigger_of).collect();
     if triggers.is_empty() {
         return None;
-    }
-    if triggers.contains(&Trigger::IntakeThread) {
-        return Some(Trigger::IntakeThread);
     }
     if triggers.contains(&Trigger::Direct) {
         return Some(Trigger::Direct);
@@ -76,7 +54,6 @@ mod tests {
         author_is_bot: false,
         is_system: false,
         is_dm: false,
-        in_open_intake_thread: false,
         mentions_nuki: false,
         mentions_nuki_role: false,
         replies_to_nuki: false,
@@ -84,11 +61,6 @@ mod tests {
 
     const MENTION: MessageFacts = MessageFacts {
         mentions_nuki: true,
-        ..UNSOLICITED
-    };
-
-    const IN_INTAKE_THREAD: MessageFacts = MessageFacts {
-        in_open_intake_thread: true,
         ..UNSOLICITED
     };
 
@@ -123,13 +95,18 @@ mod tests {
     }
 
     #[test]
-    fn messages_in_an_open_intake_thread_are_intake_thread() {
-        assert_eq!(trigger_of(&IN_INTAKE_THREAD), Some(Trigger::IntakeThread));
+    fn mentions_of_nuki_are_direct() {
+        assert_eq!(trigger_of(&MENTION), Some(Trigger::Direct));
     }
 
     #[test]
-    fn mentions_of_nuki_are_direct() {
-        assert_eq!(trigger_of(&MENTION), Some(Trigger::Direct));
+    fn mentions_of_the_role_of_nuki_are_direct() {
+        let facts = MessageFacts {
+            mentions_nuki_role: true,
+            ..UNSOLICITED
+        };
+
+        assert_eq!(trigger_of(&facts), Some(Trigger::Direct));
     }
 
     #[test]
@@ -148,60 +125,8 @@ mod tests {
     }
 
     #[test]
-    fn intake_thread_wins_over_a_mention() {
-        let facts = MessageFacts {
-            mentions_nuki: true,
-            ..IN_INTAKE_THREAD
-        };
-
-        assert_eq!(trigger_of(&facts), Some(Trigger::IntakeThread));
-    }
-
-    #[test]
-    fn a_unit_with_a_mention_of_nuki_addresses_nuki() {
-        let mention = MessageFacts {
-            mentions_nuki: true,
-            ..IN_INTAKE_THREAD
-        };
-
-        assert!(unit_addresses_nuki(&[IN_INTAKE_THREAD, mention]));
-    }
-
-    #[test]
-    fn a_unit_with_a_mention_of_the_role_of_nuki_addresses_nuki() {
-        let mention = MessageFacts {
-            mentions_nuki_role: true,
-            ..IN_INTAKE_THREAD
-        };
-
-        assert!(unit_addresses_nuki(&[mention]));
-    }
-
-    #[test]
-    fn a_unit_with_a_reply_to_nuki_addresses_nuki() {
-        let reply = MessageFacts {
-            replies_to_nuki: true,
-            ..IN_INTAKE_THREAD
-        };
-
-        assert!(unit_addresses_nuki(&[reply]));
-    }
-
-    #[test]
-    fn a_unit_without_a_mention_or_a_reply_does_not_address_nuki() {
-        assert!(!unit_addresses_nuki(&[IN_INTAKE_THREAD, IN_INTAKE_THREAD]));
-    }
-
-    #[test]
     fn a_unit_of_messages_without_a_trigger_has_no_trigger() {
         assert_eq!(trigger_of_unit(&[FROM_A_BOT, FROM_A_BOT]), None);
-    }
-
-    #[test]
-    fn a_unit_with_an_intake_thread_message_is_intake_thread() {
-        let unit = [UNSOLICITED, IN_INTAKE_THREAD, MENTION];
-
-        assert_eq!(trigger_of_unit(&unit), Some(Trigger::IntakeThread));
     }
 
     #[test]

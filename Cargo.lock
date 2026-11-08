@@ -1350,7 +1350,6 @@ dependencies = [
  "rquickjs",
  "rusqlite",
  "rusqlite_migration",
- "schemars",
  "serde",
  "serde_json",
  "serenity",

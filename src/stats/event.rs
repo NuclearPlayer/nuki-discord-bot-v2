@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+use crate::admin::reports::ReportKind;
 use crate::routing::trigger::Trigger;
-use crate::store::intakes::IntakeKind;
 
 /// One action of the bot. The `data` column of the event's row holds the data of the variant.
 #[derive(Debug, Clone, PartialEq)]
@@ -18,8 +18,7 @@ pub enum Event {
     ReactionAdded(ReactionAdded),
     EmojiCreated(EmojiCreated),
     ThreadCreated(ThreadCreated),
-    IntakeOpened(IntakeOpened),
-    IntakeReported(IntakeReported),
+    ReportSent(ReportSent),
     ModelChanged(ModelChanged),
     ErrorRaised(ErrorRaised),
 }
@@ -37,8 +36,7 @@ impl Event {
             Event::ReactionAdded(_) => "reaction.added",
             Event::EmojiCreated(_) => "emoji.created",
             Event::ThreadCreated(_) => "thread.created",
-            Event::IntakeOpened(_) => "intake.opened",
-            Event::IntakeReported(_) => "intake.reported",
+            Event::ReportSent(_) => "report.sent",
             Event::ModelChanged(_) => "model.changed",
             Event::ErrorRaised(_) => "error",
         }
@@ -56,8 +54,7 @@ impl Event {
             Event::ReactionAdded(data) => serde_json::to_value(data),
             Event::EmojiCreated(data) => serde_json::to_value(data),
             Event::ThreadCreated(data) => serde_json::to_value(data),
-            Event::IntakeOpened(data) => serde_json::to_value(data),
-            Event::IntakeReported(data) => serde_json::to_value(data),
+            Event::ReportSent(data) => serde_json::to_value(data),
             Event::ModelChanged(data) => serde_json::to_value(data),
             Event::ErrorRaised(data) => serde_json::to_value(data),
         };
@@ -70,14 +67,12 @@ impl Event {
 #[serde(rename_all = "snake_case")]
 pub enum JevPurpose {
     Category,
-    IntakeFields,
 }
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum LlmPurpose {
     Turn,
-    Extract,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -85,7 +80,6 @@ pub enum LlmPurpose {
 pub enum WorkflowOutcome {
     Reply,
     Nothing,
-    Intake,
     Error,
 }
 
@@ -197,19 +191,12 @@ pub struct ThreadCreated {
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
-pub struct IntakeOpened {
-    pub intake_id: i64,
-    pub intake_kind: IntakeKind,
+pub struct ReportSent {
+    pub kind: ReportKind,
     pub thread_id: u64,
-}
-
-#[derive(Serialize, Debug, Clone, PartialEq)]
-pub struct IntakeReported {
-    pub intake_id: i64,
-    pub intake_kind: IntakeKind,
-    pub complete: bool,
-    pub missing: Vec<String>,
-    pub by_timeout: bool,
+    /// The message that the report is about.
+    pub message_id: u64,
+    pub title: String,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -292,17 +279,11 @@ mod tests {
                 message_id: 1,
                 name: "Bug".to_string(),
             }),
-            Event::IntakeOpened(IntakeOpened {
-                intake_id: 5,
-                intake_kind: IntakeKind::Bug,
+            Event::ReportSent(ReportSent {
+                kind: ReportKind::Bug,
                 thread_id: 4,
-            }),
-            Event::IntakeReported(IntakeReported {
-                intake_id: 5,
-                intake_kind: IntakeKind::Bug,
-                complete: true,
-                missing: vec![],
-                by_timeout: false,
+                message_id: 1,
+                title: "Bug".to_string(),
             }),
             Event::ModelChanged(ModelChanged {
                 previous: "a/b".to_string(),
@@ -354,8 +335,7 @@ mod tests {
                 "reaction.added",
                 "emoji.created",
                 "thread.created",
-                "intake.opened",
-                "intake.reported",
+                "report.sent",
                 "model.changed",
                 "error",
             ]

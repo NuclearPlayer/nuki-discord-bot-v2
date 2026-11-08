@@ -38,7 +38,6 @@ impl From<&Outcome> for WorkflowOutcome {
         match outcome {
             Outcome::Reply(_) => WorkflowOutcome::Reply,
             Outcome::Nothing => WorkflowOutcome::Nothing,
-            Outcome::Intake { .. } => WorkflowOutcome::Intake,
         }
     }
 }
@@ -99,7 +98,7 @@ mod tests {
         let (store, run) = test_run().await;
         let before = Utc::now();
 
-        let error = timed(&run, "help_request", async {
+        let error = timed(&run, "help", async {
             Err(anyhow!("connection refused")).context("the Jev request failed")
         })
         .await
@@ -115,7 +114,7 @@ mod tests {
             vec![run_event(
                 "workflow.finished",
                 json!({
-                    "workflow": "help_request",
+                    "workflow": "help",
                     "outcome": "error",
                     "error": "the Jev request failed: connection refused",
                 }),

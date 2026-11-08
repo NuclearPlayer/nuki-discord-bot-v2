@@ -1,14 +1,10 @@
 use std::sync::Arc;
 
-use rig_agent::completion::{PromptError, StructuredOutputError};
-use rig_agent::extractor::ExtractorBuilder;
+use rig_agent::completion::PromptError;
 use rig_agent::{Agent, AgentBuilder};
 use rig_core::message::{AssistantContent, Message};
 use rig_core::providers::openai::wire::OPENROUTER;
 use rig_core::providers::openai::{OpenAI, OpenAIConfig};
-use schemars::JsonSchema;
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 use serde_json::Value;
 use thiserror::Error;
 
@@ -34,8 +30,6 @@ pub enum LlmError {
     MaxTurns { max_turns: usize },
     #[error("the LLM run failed: {0}")]
     Prompt(#[source] Box<PromptError>),
-    #[error("the extraction failed: {0}")]
-    Extraction(#[source] Box<StructuredOutputError>),
     #[error("a turn message does not serialize: {0}")]
     Json(#[from] serde_json::Error),
     #[error("the messages of the run do not start with the prompt")]
@@ -104,32 +98,6 @@ impl LlmClient {
             None => builder.build(),
         }
     }
-
-    pub async fn extract<T>(
-        &self,
-        model_id: &str,
-        system_prompt: &str,
-        history: Vec<Message>,
-        instruction: &str,
-        stats: &RunStats,
-    ) -> Result<T, LlmError>
-    where
-        T: JsonSchema + DeserializeOwned + Serialize + Send + Sync + 'static,
-    {
-        let extractor = ExtractorBuilder::<T>::new(self.client.completion(model_id))
-            .append_preamble(system_prompt)
-            .build();
-        let response = extractor
-            .extract(instruction)
-            .history(history)
-            .add_hook(StatsHook::new(
-                stats.clone(),
-                LlmPurpose::Extract,
-                model_id.to_string(),
-            ))
-            .await?;
-        Ok(response.output)
-    }
 }
 
 /// Serializes the messages that the run added after the prompt, without the final answer.
@@ -171,12 +139,6 @@ impl From<PromptError> for LlmError {
     }
 }
 
-impl From<StructuredOutputError> for LlmError {
-    fn from(error: StructuredOutputError) -> LlmError {
-        LlmError::Extraction(Box::new(error))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -185,13 +147,12 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer};
 
-    use serde::Deserialize;
     use serde_json::json;
 
     use super::*;
     use crate::llm::test_support::{
-        RIG_EXTRACTION_PREAMBLE, assert_echo_tool_turn, assert_run_script_tool, llm_request_bodies,
-        messages, mount_llm_replies,
+        assert_echo_tool_turn, assert_run_script_tool, llm_request_bodies, messages,
+        mount_llm_replies,
     };
     use crate::sandbox::runtime::SandboxLimits;
     use crate::sandbox::test_support::echo_table;
@@ -202,7 +163,6 @@ mod tests {
 
     const FINAL_TEXT: &str = include_str!("../../tests/fixtures/llm/final_text.json");
     const RUN_SCRIPT_CALL: &str = include_str!("../../tests/fixtures/llm/run_script_call.json");
-    const SUBMIT_CALL: &str = include_str!("../../tests/fixtures/llm/submit_call.json");
     const OPENROUTER_RUN_SCRIPT_CALL: &str =
         include_str!("../../tests/fixtures/llm/openrouter_run_script_call.json");
     const OPENROUTER_FINAL_TEXT: &str =
@@ -332,60 +292,6 @@ mod tests {
         );
     }
 
-    #[derive(Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-    struct BugFields {
-        title: String,
-        severity: Option<String>,
-    }
-
-    async fn extract_bug_fields(server: &MockServer, stats: &RunStats) -> BugFields {
-        client(server)
-            .extract(
-                TEST_MODEL_ID,
-                "You read bug reports.",
-                vec![Message::user("Playback stops after one track.")],
-                "Extract the bug fields.",
-                stats,
-            )
-            .await
-            .unwrap()
-    }
-
-    #[tokio::test]
-    async fn extract_returns_the_typed_value() {
-        let server = chat_server(&[SUBMIT_CALL]).await;
-
-        let fields = extract_bug_fields(&server, &unrecorded_run().await).await;
-
-        assert_eq!(
-            fields,
-            BugFields {
-                title: "Playback stops after one track".to_string(),
-                severity: None,
-            }
-        );
-        let body = &llm_request_bodies(&server).await[0];
-        assert_eq!(
-            body["messages"],
-            json!([
-                {
-                    "role": "system",
-                    "content": [{
-                        "type": "text",
-                        "text": format!("{RIG_EXTRACTION_PREAMBLE}You read bug reports.")
-                    }]
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        { "type": "text", "text": "Playback stops after one track." },
-                        { "type": "text", "text": "Extract the bug fields." }
-                    ]
-                }
-            ])
-        );
-    }
-
     #[tokio::test(flavor = "multi_thread")]
     async fn a_run_with_a_script_records_its_model_calls_and_its_tool_call() {
         let server = chat_server(&[OPENROUTER_RUN_SCRIPT_CALL, OPENROUTER_FINAL_TEXT]).await;
@@ -491,59 +397,5 @@ mod tests {
         client(&server).run(request(None, stats)).await.unwrap();
 
         assert!(duration_of(&store, "llm.call").await >= 50);
-    }
-
-    #[tokio::test]
-    async fn extract_records_an_llm_call_with_the_purpose_extract() {
-        let server = chat_server(&[SUBMIT_CALL]).await;
-        let (store, stats) = test_run().await;
-        let before = Utc::now();
-
-        extract_bug_fields(&server, &stats).await;
-
-        let after = Utc::now();
-        assert_eq!(
-            events_between(&store, before, after).await,
-            vec![run_event(
-                "llm.call",
-                json!({
-                    "purpose": "extract",
-                    "call_index": 1,
-                    "requested_model": "test/model",
-                    "response_model": "test/model",
-                    "provider": null,
-                    "response_id": "gen-submit",
-                    "input_tokens": 50,
-                    "output_tokens": 14,
-                    "total_tokens": 64,
-                    "cached_input_tokens": null,
-                    "cache_write_tokens": null,
-                    "reasoning_tokens": null,
-                    "cost_usd": null,
-                    "cost_estimated": false,
-                    "finish_reason": "tool_calls",
-                    "output": [{
-                        "type": "toolcall",
-                        "id": { "provider": "call_submit" },
-                        "function": {
-                            "name": "submit",
-                            "arguments": { "title": "Playback stops after one track", "severity": null }
-                        },
-                        "native": {
-                            "item": {
-                                "id": "call_submit",
-                                "type": "function",
-                                "function": {
-                                    "name": "submit",
-                                    "arguments": r#"{"title":"Playback stops after one track","severity":null}"#
-                                }
-                            },
-                            // Rig's hash of the tools and the system prompt of the request.
-                            "fingerprint": "4a930ff43b485e25"
-                        }
-                    }],
-                })
-            )]
-        );
     }
 }

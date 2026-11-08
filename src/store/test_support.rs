@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
+use rusqlite::Row;
+use rusqlite::types::Type;
 
-use crate::store::{Store, call, timestamp_column};
+use crate::store::{Store, call};
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct EventRow {
@@ -50,4 +52,13 @@ pub(crate) async fn all_events(store: &Store) -> Vec<EventRow> {
             },
         )
         .collect()
+}
+
+fn timestamp_column(row: &Row, index: usize) -> rusqlite::Result<DateTime<Utc>> {
+    let text: String = row.get(index)?;
+    DateTime::parse_from_rfc3339(&text)
+        .map(|at| at.with_timezone(&Utc))
+        .map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
+        })
 }

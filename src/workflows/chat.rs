@@ -1,4 +1,4 @@
-use super::{Outcome, Reply, TurnContext, TurnOptions, WorkflowDeps, llm_turn};
+use super::{Outcome, Reply, TurnContext, WorkflowDeps, llm_turn};
 use crate::prompts::system::WorkflowPrompt;
 
 pub struct ChatWorkflow {
@@ -6,14 +6,10 @@ pub struct ChatWorkflow {
 }
 
 impl ChatWorkflow {
-    /// An empty text is a valid answer. If the text is empty, Nuki only reacted, and the bot
-    /// sends nothing.
-    pub async fn run(&self, ctx: &TurnContext) -> anyhow::Result<Outcome> {
-        let options = TurnOptions {
-            extra: None,
-            instruction: None,
-        };
-        let result = llm_turn(&self.deps, ctx, WorkflowPrompt::Chat, options).await?;
+    /// Runs one turn with the workflow prompt `prompt`. An empty text is a valid answer. If the
+    /// text is empty, Nuki only reacted, and the bot sends nothing.
+    pub async fn run(&self, ctx: &TurnContext, prompt: WorkflowPrompt) -> anyhow::Result<Outcome> {
+        let result = llm_turn(&self.deps, ctx, prompt).await?;
         if result.text.is_empty() {
             return Ok(Outcome::Nothing);
         }
@@ -23,6 +19,7 @@ impl ChatWorkflow {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use wiremock::MockServer;
 
     use super::*;
@@ -31,18 +28,43 @@ mod tests {
         assert_echo_tool_turn, assert_run_script_tool, llm_request_bodies, messages,
         mount_llm_replies,
     };
+    use crate::prompts::system::SystemPrompt;
     use crate::workflows::test_support::{context, deps};
 
     const CHAT_REPLY: &str = include_str!("../../tests/fixtures/workflows/chat_reply.json");
     const RUN_SCRIPT_CALL: &str = include_str!("../../tests/fixtures/llm/run_script_call.json");
 
     async fn run_chat(server: &MockServer) -> Outcome {
+        run_with(server, WorkflowPrompt::Chat).await
+    }
+
+    async fn run_with(server: &MockServer, prompt: WorkflowPrompt) -> Outcome {
         let workflow = ChatWorkflow {
             deps: deps(server).await,
         };
         let message = user_message(1, "my playlist is 900 hours of vaporwave");
         let ctx = context(vec![message]).await;
-        workflow.run(&ctx).await.unwrap()
+        workflow.run(&ctx, prompt).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_workflow_sends_the_system_prompt_of_the_given_workflow_prompt() {
+        let server = MockServer::start().await;
+        mount_llm_replies(&server, &[CHAT_REPLY]).await;
+
+        run_with(&server, WorkflowPrompt::Help).await;
+
+        let ctx = context(vec![]).await;
+        assert_eq!(
+            llm_request_bodies(&server).await[0]["messages"][0],
+            json!({
+                "role": "system",
+                "content": [{
+                    "type": "text",
+                    "text": SystemPrompt::build(WorkflowPrompt::Help, &ctx.runtime),
+                }],
+            })
+        );
     }
 
     #[tokio::test]

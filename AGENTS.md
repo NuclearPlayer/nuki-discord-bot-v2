@@ -11,21 +11,20 @@ Nuki is a Rust Discord bot for the server of the Nuclear music player. `README.m
 1. `Handler::message` (`src/discord/handler.rs`) receives each message. It discards the messages from bots, the system messages, and the direct messages. It gives all other messages to the `Debouncer`.
 2. `Debouncer` (`src/routing/debounce.rs`) collects the messages of one author in one channel. When the author sends no message for `DEBOUNCE_SECONDS`, it sends the messages as one unit.
 3. `spawn_unit_reader` (`src/discord/pipeline.rs`) starts `process_unit` in a new task for each unit. Each unit is one run, with one `RunStats`.
-4. `trigger_of_unit` (`src/routing/trigger.rs`) gives the trigger of the unit:
-   - `IntakeThread`: the unit is in the thread of an open intake. `route_in_intake` (`src/discord/pipeline.rs`) sends the unit to its intake. Refer to "Intakes".
+4. `trigger_of_unit` (`src/routing/trigger.rs`) gives the trigger of the unit. A unit in a thread gets its trigger in the same way:
    - `Direct`: a message mentions Nuki or Nuki's managed role, or replies to Nuki.
    - `Unsolicited`: all other units.
-5. `fetch_unit_context` (`src/discord/history.rs`) gets the last `CONTEXT_MESSAGES` messages of the channel. The unit is at the end.
+5. `fetch_unit_context` (`src/discord/history.rs`) gets the last `CONTEXT_MESSAGES` messages of the channel. The unit is at the end. In a thread, the starter message comes before the thread's messages. If the starter message and the thread's messages take fewer than `CONTEXT_MESSAGES` places, the parent channel's messages before the starter message fill the remaining places.
 6. `Classifier::classify` (`src/routing/classify.rs`) sends the history and the unit to Jev with the question in `prompts/decisions/category.md`. Jev gives a probability for each `Category`. For a `Direct` unit, the question has no `ignore` category.
 7. `decide_with_cooldown` (`src/routing/dispatch.rs`) gives the `Decision`. For a `Direct` unit, Nuki runs the top category. For an `Unsolicited` unit, Nuki skips the unit in these conditions:
    - The top category is `ignore`.
-   - The probability of the top category is below its threshold, `THRESHOLD_HELP`, `THRESHOLD_BUG`, `THRESHOLD_FEATURE`, or `THRESHOLD_CHAT`.
+   - The probability of the top category is below its threshold, `THRESHOLD_HELP` or `THRESHOLD_CHAT`.
    - The top category is `chat`, and the chat cooldown of the channel is active. If Nuki runs an unsolicited chat, the cooldown starts.
-8. `run_category` (`src/discord/pipeline.rs`) starts the workflow of the category: `ChatWorkflow` for a help request or a chat, or `start_intake` for a bug report or a feature request.
+8. `run_category` (`src/discord/pipeline.rs`) runs `ChatWorkflow` (`src/workflows/chat.rs`) with the workflow prompt of the category: `WorkflowPrompt::Help` for `help`, and `WorkflowPrompt::Chat` for `chat`. Refer to "Reports".
 9. `turn_context` (`src/discord/turn_context.rs`) makes the `TurnContext`: the history, the stored tool turns, the runtime context, and the sandbox for the server.
 10. The workflow calls `llm_turn` (`src/workflows/mod.rs`). `llm_turn` makes the LLM history with `build_history` (`src/discord/context.rs`) and the system prompt with `SystemPrompt::build` (`src/prompts/system.rs`).
 11. `LlmClient::run` (`src/llm/agent.rs`) runs the agent on OpenRouter with the active model. The agent can call the `run_script` tool 50 times at most. Then it must give its text.
-12. `run_script` (`src/llm/script_tool.rs`) runs the JS of the model in the QuickJS `Sandbox` (`src/sandbox/runtime.rs`). The script calls the `discord.*`, `repo.*`, `github.*`, and `web.*` operations. Tavily does the web requests of `web.*`. `run_script` adds the reminder of `prompts/tools/reminder.md` after each result that the model gets.
+12. `run_script` (`src/llm/script_tool.rs`) runs the JS of the model in the QuickJS `Sandbox` (`src/sandbox/runtime.rs`). The script calls the `discord.*`, `repo.*`, `github.*`, `web.*`, and `reports.*` operations. Tavily does the web requests of `web.*`. `run_script` adds the reminder of `prompts/tools/reminder.md` after each result that the model gets.
 13. The workflow returns an `Outcome`. `apply_outcome` (`src/discord/reply.rs`) sends the reply in parts of 2000 characters or less. It stores the tool turn in `tool_turns`, with the ID of the first part.
 
 If a step fails, `process_unit` sends the error to the admin log channel with `AdminLog::report_error` (`src/admin/log.rs`). Nuki sends nothing in the channel of the unit.
@@ -42,34 +41,33 @@ If the text of the Chat workflow is empty, Nuki sends nothing.
 - `run_script`: `tool.call`.
 - The `discord.*` operations (`src/sandbox/ops/discord/client.rs`): `reaction.added` and `emoji.created`.
 - `timed` (`src/workflows/timed.rs`): `workflow.finished`.
-- `src/discord/reply.rs`: `reply.sent` and `intake.reported`.
-- `src/discord/intake_thread.rs`: `thread.created` and `intake.opened`.
+- `src/discord/reply.rs`: `reply.sent`.
+- `reports.send` (`src/sandbox/ops/reports.rs`): `thread.created` and `report.sent`.
 - `src/discord/commands.rs`: `model.changed`.
 - `AdminLog::report_error`: `error`.
 
-### Intakes
+### Reports
 
-An intake collects a bug report or a feature request in a thread:
+Jev does not decide if a problem is a bug, a feature request, or a question. Nuki decides in the Help workflow, because she can read the docs, the code, and the releases. `prompts/workflows/help.md` tells her to do these steps:
 
-1. `start_intake` (`src/discord/intake_thread.rs`) finds the thread. If the unit is in a thread, it uses that thread. If not, it makes a public thread from the last message of the unit.
-2. `start_intake` stores the intake in `intakes` and runs the first turn.
-3. When the next unit comes in the thread, `route_in_intake` (`src/discord/pipeline.rs`) examines the unit:
-   - If a message of the unit mentions Nuki or Nuki's managed role, or replies to Nuki, Nuki does not classify the unit. `continue_intake` runs the next turn.
-   - If not, Jev classifies the unit with the question of an `Unsolicited` unit, with all the categories. `decide_in_intake` (`src/routing/dispatch.rs`) gives the `Decision`. If `ignore` is the top category, the decision is `Skip`: Nuki skips the unit and does not change the intake. For example, Nuki skips the messages of a maintainer who works on the bug with the reporter. If another category is on top, the decision is `ContinueIntake`, and `continue_intake` runs the next turn. The thresholds and the chat cooldown do not apply.
+1. Find out if Nuclear already does what the user wants. If so, tell the user how.
+2. For a bug, examine the releases and the commits after the user's version. If a newer version possibly fixed the bug, tell the user to update.
+3. For a real bug or a new feature, send a report with `reports.send`. Use only the conversation. Do not ask the user for more details.
+4. Tell the user that the report went to the team, with the link to the thread.
+5. Do not send a second report for the same problem in the same conversation.
 
-   Nuki makes this decision again for each unit, so Nuki can continue the intake after a skipped unit. `continue_intake` gets the history of the intake with `fetch_thread_history`.
-4. `IntakeWorkflow::run_turn` (`src/workflows/intake/mod.rs`) sends the conversation to Jev with the questions in `bug-fields.md` or `feature-fields.md`. If fields are missing, the system prompt of the turn gives their names.
-5. When all fields are present, `LlmClient::extract` makes the `Report` (`src/workflows/intake/report.rs`).
-6. `apply_intake_outcome` sends the report as an embed to the admin log channel, and closes the intake.
+`ReportsOps::send` (`src/sandbox/ops/reports.rs`) does these steps:
 
-If the reporter sends no message for `INTAKE_TIMEOUT_HOURS`, the timeout task completes the intake with `complete_inactive_intake`. The report gives the names of the missing fields. If the thread does not exist, Nuki closes the intake with no report.
+1. If `channelId` is a thread, it uses that thread. If not, it makes a public thread from the message `messageId`. `thread_name` (`src/discord/reply.rs`) gives the name of the thread.
+2. It sends the embed of `report_embed` (`src/admin/reports.rs`) to the admin log channel. The author of `messageId` is the reporter.
+3. It records `thread.created` for a new thread, and `report.sent`.
+4. It returns `{ threadId }`.
+
+Nuki's reply goes to the channel of the unit, as for each Chat reply.
 
 ### Background tasks
 
-`src/tasks.rs` starts two tasks:
-
-- `spawn_repo_fetch` updates all clones at intervals of `REPO_FETCH_INTERVAL_MINUTES`.
-- `spawn_intake_timeout` examines the open intakes at intervals of 10 minutes. It completes the intakes that are past the intake timeout.
+`src/tasks.rs` starts one task: `spawn_repo_fetch` updates all clones at intervals of `REPO_FETCH_INTERVAL_MINUTES`.
 
 ### `/change-model`
 
@@ -79,7 +77,7 @@ If the reporter sends no message for `INTAKE_TIMEOUT_HOURS`, the timeout task co
 
 Nuki keeps its state in these locations:
 
-- SQLite, in `DATA_DIR/nuki.sqlite` (`src/store/`). The tables are `settings`, `intakes`, `tool_turns`, and `events`. `Store::open` applies the migrations in `migrations/`.
+- SQLite, in `DATA_DIR/nuki.sqlite` (`src/store/`). The tables are `settings`, `tool_turns`, and `events`. `Store::open` applies the migrations in `migrations/`.
 - Bare clones of the repositories, in `DATA_DIR/repos/<owner>/<name>.git` (`src/repos/manager.rs`). The catalog contains `nukeop/nuclear` and the public repositories of `NuclearPlayer`. `App::build` clones `nukeop/nuclear`. `RepoManager::ensure_cloned` clones each other repository when a script reads it for the first time.
 - Memory: the debounced messages, the chat cooldowns (`Cooldowns`), and the active model. When Nuki stops, it loses the debounced messages and the cooldowns.
 
@@ -87,20 +85,20 @@ Nuki keeps its state in these locations:
 
 | Task | Files |
 |---|---|
-| Change which messages reach Nuki | `trigger_of`, `trigger_of_unit`, `unit_addresses_nuki` in `src/routing/trigger.rs`. `facts_of` in `src/discord/handler.rs`. |
-| Add a trigger rule | A field in `MessageFacts` and a rule in `trigger_of`, in `src/routing/trigger.rs`. Fill the field in `facts_of`. If the rule tells that a message addresses Nuki, put it in `addresses_nuki`. Then `unit_addresses_nuki` also uses it in an intake thread. |
+| Change which messages reach Nuki | `trigger_of`, `trigger_of_unit` in `src/routing/trigger.rs`. `facts_of` in `src/discord/handler.rs`. |
+| Add a trigger rule | A field in `MessageFacts` and a rule in `trigger_of`, in `src/routing/trigger.rs`. Fill the field in `facts_of`. If the rule tells that a message addresses Nuki, put it in `addresses_nuki`. |
 | Change the debounce | `src/routing/debounce.rs`. `DEBOUNCE_SECONDS` in `src/config.rs`. |
 | Change the categories | `prompts/decisions/category.md`, `src/routing/category.rs`, `run_category` in `src/discord/pipeline.rs`. |
-| Change the thresholds or the chat cooldown | `src/routing/dispatch.rs`, `src/routing/cooldown.rs`, `src/config.rs`. In an intake thread, `decide_in_intake` in `src/routing/dispatch.rs` decides with no thresholds and no cooldown. |
-| Change which messages are in the history | `fetch_unit_context` and `fetch_thread_history` in `src/discord/history.rs`. |
+| Change the thresholds or the chat cooldown | `src/routing/dispatch.rs`, `src/routing/cooldown.rs`, `src/config.rs`. |
+| Change which messages are in the history | `fetch_unit_context` in `src/discord/history.rs`. In a thread, `in_thread` adds the starter message, and `parent_messages_before` adds the parent channel's messages before the starter message. |
 | Change how the chat history is shown to the LLM | `build_history` and `header` in `src/discord/context.rs`. `ThreadMarker` in `src/discord/thread_marker.rs`. |
 | Change how the history is shown to Jev | `jev_lines` in `src/discord/context.rs`. |
 | Change how attachments go to the LLM | `src/discord/attachments.rs`, `src/discord/modality.rs`. |
 | Change the author names and roles | `src/discord/authors.rs`. |
 | Change the system prompt | `prompts/*.md`, `prompts/workflows/`. `SystemPrompt::build` and `RuntimeContext` in `src/prompts/system.rs`. |
-| Change a workflow | `src/workflows/chat.rs`, `src/workflows/intake/`. |
-| Change the fields of an intake | `prompts/decisions/bug-fields.md`, `prompts/decisions/feature-fields.md`. |
-| Change the report or its embed | `src/workflows/intake/report.rs`, `src/admin/reports.rs`. |
+| Change a workflow | `src/workflows/chat.rs`, `prompts/workflows/`. `WorkflowPrompt` in `src/prompts/system.rs`. |
+| Change when Nuki sends a report | `prompts/workflows/help.md`. |
+| Change the report or its embed | `src/sandbox/ops/reports.rs`, `src/admin/reports.rs`. |
 | Change how Nuki sends a reply | `src/discord/reply.rs`. |
 | Change the limit of model calls | `MAX_MODEL_CALLS` in `src/llm/agent.rs`. |
 | Change the sandbox limits | `SandboxLimits::production` in `src/sandbox/runtime.rs`. |
@@ -115,7 +113,7 @@ Nuki keeps its state in these locations:
 | Change the GitHub requests | `src/github/client.rs`. |
 | Change the Tavily requests of `web.search` and `web.fetch` | `src/web/client.rs`, `src/web/types.rs`. |
 | Change the Jev requests | `src/decisions/`. |
-| Change the intake timeout or the fetch interval | `src/tasks.rs`, `src/config.rs`. |
+| Change the fetch interval | `src/tasks.rs`, `src/config.rs`. |
 
 ## Modules
 
@@ -125,19 +123,19 @@ The bot is one crate, `nuki`.
 |---|---|
 | `src/config.rs` | `Config`, with the values of the environment variables. `load_dotenv` loads `.env`. |
 | `src/logging.rs` | The `tracing` subscriber. `RUST_LOG` sets its filter. |
-| `src/tasks.rs` | The background tasks. |
+| `src/tasks.rs` | The background task. |
 | `src/discord/` | The Serenity handler, the pipeline, `/change-model`, the history and the context builder, the attachments, the reply sender, and the usage events of the pipeline. |
 | `src/routing/` | The trigger rules, the debounce, the Jev classification, the thresholds, the chat cooldown, and the `Decision`. |
 | `src/decisions/` | The client and the types of the Jev Decisions API on OpenRouter. |
 | `src/llm/` | The OpenRouter LLM agent and its limits, the `run_script` tool, the model list, and the active model. |
-| `src/workflows/` | `TurnContext`, `Outcome`, `llm_turn`, and the Chat and intake workflows. |
-| `src/prompts/` | The compiled prompt files, the system prompt builder, and the parser of the Jev question files. |
-| `src/sandbox/` | The QuickJS runtime, the operation table, the TypeScript declarations, and the operations in `ops/`. |
+| `src/workflows/` | `TurnContext`, `Outcome`, `llm_turn`, and the Chat workflow. |
+| `src/prompts/` | The compiled prompt files, the system prompt builder, and the parser of the Jev question file. |
+| `src/sandbox/` | The QuickJS runtime, the operation table, the TypeScript declarations, and the operations in `ops/`, including `reports.send`. |
 | `src/repos/` | The repository catalog, the clone and fetch manager, the `git` CLI wrapper, and the read operations on the clones. |
 | `src/github/` | The read-only GitHub client. It uses REST for releases and pull requests, and GraphQL for Discussions. |
 | `src/web/` | The Tavily client for web search and page text. It uses Tavily's keyless access, with no API key. |
 | `src/stats/` | The usage event types, and the recorder that writes the events of each run to `events`. |
-| `src/store/` | The SQLite store: the tool turns, the intakes, the settings, and the usage events. |
+| `src/store/` | The SQLite store: the tool turns, the settings, and the usage events. |
 | `src/admin/` | The report embeds and the error messages for the admin log channel. |
 | `src/test_support.rs` | The test helpers that more than one module uses, for example `json_response` for `wiremock`. |
 
@@ -177,12 +175,9 @@ CI runs the same commands in `.github/workflows/ci.yml`.
 
 The prompts are Markdown files in `prompts/`. `src/prompts/files.rs` compiles each file into the binary as one constant, with `include_str!`. To add a prompt file, add a constant for it in `src/prompts/files.rs`.
 
-`SystemPrompt::build` puts these parts in sequence: `personality.md`, `examples.md`, `nuclear.md`, `knowledge.md`, the workflow prompt from `prompts/workflows/`, the extra text of the turn, and the "Current context" section.
+`SystemPrompt::build` puts these parts in sequence: `personality.md`, `nuclear.md`, `knowledge.md`, the workflow prompt from `prompts/workflows/`, the "Current context" section, and `examples.md`. The "Current context" section gives the name and the ID of the current channel or thread.
 
-`src/prompts/questions.rs` parses the files in `prompts/decisions/`. Each file has its format:
-
-- `category.md`: the text before the first `## ` heading is the question. Each `## ` heading is the name of one category, and the text below it is the description of that category. The headings must agree with `Category::name` in `src/routing/category.rs`.
-- `bug-fields.md` and `feature-fields.md`: each `## ` heading is the name of one yes-or-no question, and the text below it is the question. If the file has text before the first heading, the parser rejects the file.
+`src/prompts/questions.rs` parses `prompts/decisions/category.md`. The text before the first `## ` heading is the question. Each `## ` heading is the name of one category, and the text below it is the description of that category. The headings must agree with `Category::name` in `src/routing/category.rs`.
 
 ## Add a sandbox operation
 
@@ -190,14 +185,14 @@ The operation table is the only source of the sandbox functions. Each `Operation
 
 Do these steps:
 
-1. Open the file of the namespace in `src/sandbox/ops/`: `discord/mod.rs`, `repo.rs`, `github.rs`, or `web/mod.rs`.
+1. Open the file of the namespace in `src/sandbox/ops/`: `discord/mod.rs`, `repo.rs`, `github.rs`, `web/mod.rs`, or `reports.rs`.
 2. Write a struct for the parameters, with `#[derive(Deserialize)]` and `#[serde(rename_all = "camelCase")]`.
 3. Write a function that returns an `Operation`.
 4. If the operation uses the shared client of the namespace, call `Operation::with_handle` in that function. If not, call `Operation::typed`. All current operations use `Operation::with_handle`.
 5. Give the namespace constant, the name in camelCase, a description of one line, and the `Param` list.
 6. Give the return type as a TypeScript type expression.
 7. Give the async Rust function.
-8. Add the function to the `vec!` of the table function: `discord_table`, `repo_table`, `github_table`, or `web_table`.
+8. Add the function to the `vec!` of the table function: `discord_table`, `repo_table`, `github_table`, `web_table`, or `reports_table`.
 
 For a new namespace, write a new table function. Add it to `full_table` in `src/sandbox/ops/mod.rs`.
 

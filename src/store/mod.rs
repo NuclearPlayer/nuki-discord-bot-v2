@@ -1,5 +1,4 @@
 pub mod events;
-pub mod intakes;
 pub mod settings;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -8,14 +7,11 @@ pub mod tool_turns;
 use std::path::Path;
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::Row;
-use rusqlite::types::Type;
 use rusqlite_migration::{M, Migrations};
 use thiserror::Error;
 use tokio_rusqlite::Connection;
 
 use events::EventStore;
-use intakes::IntakeStore;
 use settings::SettingsStore;
 use tool_turns::ToolTurnStore;
 
@@ -53,6 +49,7 @@ impl Store {
                 M::up(include_str!("../../migrations/001_init.sql")),
                 M::up(include_str!("../../migrations/002_events.sql")),
                 M::up(include_str!("../../migrations/003_model_id.sql")),
+                M::up(include_str!("../../migrations/004_drop_intakes.sql")),
             ])
             .to_latest(c)
             .map_err(StoreError::from)
@@ -63,10 +60,6 @@ impl Store {
 
     pub fn settings(&self) -> SettingsStore {
         SettingsStore::new(self.conn.clone())
-    }
-
-    pub fn intakes(&self) -> IntakeStore {
-        IntakeStore::new(self.conn.clone())
     }
 
     pub fn tool_turns(&self) -> ToolTurnStore {
@@ -96,15 +89,6 @@ where
 /// also a time comparison.
 fn timestamp_text(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Nanos, true)
-}
-
-fn timestamp_column(row: &Row, index: usize) -> rusqlite::Result<DateTime<Utc>> {
-    let text: String = row.get(index)?;
-    DateTime::parse_from_rfc3339(&text)
-        .map(|at| at.with_timezone(&Utc))
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
-        })
 }
 
 #[cfg(test)]
@@ -155,5 +139,39 @@ mod tests {
             store.settings().model_id().await.unwrap(),
             Some("openai/gpt-5".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn open_drops_the_intakes_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nuki.db");
+        let mut old = rusqlite::Connection::open(&path).unwrap();
+        Migrations::new(vec![
+            M::up(include_str!("../../migrations/001_init.sql")),
+            M::up(include_str!("../../migrations/002_events.sql")),
+            M::up(include_str!("../../migrations/003_model_id.sql")),
+        ])
+        .to_latest(&mut old)
+        .unwrap();
+        old.execute(
+            "INSERT INTO intakes (kind, thread_id, origin_channel_id, origin_message_id, \
+             reporter_id, status, last_activity_at, created_at) \
+             VALUES ('bug', 1, 2, 3, 4, 'open', '2026-10-19T12:00:00Z', '2026-10-19T12:00:00Z')",
+            [],
+        )
+        .unwrap();
+        drop(old);
+
+        drop(Store::open(&path).await.unwrap());
+
+        let reopened = rusqlite::Connection::open(&path).unwrap();
+        let tables: Vec<String> = reopened
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(tables, vec!["events", "settings", "tool_turns"]);
     }
 }

@@ -1,5 +1,4 @@
 pub mod chat;
-pub mod intake;
 #[cfg(test)]
 pub(crate) mod test_support;
 mod timed;
@@ -10,7 +9,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Context;
-use rig_core::message::Message;
 
 use crate::decisions::client::JevClient;
 use crate::discord::attachments::ResolvedMessage;
@@ -20,7 +18,6 @@ use crate::llm::selection::ActiveModel;
 use crate::prompts::system::{RuntimeContext, SystemPrompt, WorkflowPrompt};
 use crate::sandbox::runtime::Sandbox;
 use crate::stats::recorder::RunStats;
-use intake::report::Report;
 
 /// All the data from Discord that a workflow uses for one turn.
 pub struct TurnContext {
@@ -56,17 +53,9 @@ impl From<TurnResult> for Reply {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[allow(
-    clippy::large_enum_variant,
-    reason = "one outcome per turn; a box would only make the matches harder to read"
-)]
 pub enum Outcome {
     Reply(Reply),
     Nothing,
-    Intake {
-        reply: Option<Reply>,
-        report: Option<Report>,
-    },
 }
 
 #[derive(Clone)]
@@ -76,48 +65,25 @@ pub struct WorkflowDeps {
     pub model: Arc<ActiveModel>,
 }
 
-pub struct TurnOptions<'a> {
-    /// Text for the system prompt, after the workflow prompt.
-    pub extra: Option<&'a str>,
-    /// If it is `None`, the last message of the history is the prompt. If it is set, all of the
-    /// history goes to the model as history, and the prompt is a user message with the
-    /// instruction.
-    pub instruction: Option<&'a str>,
-}
-
-/// Runs the LLM step that all workflows share.
+/// Runs the LLM step that all workflows share. The last message of the history is the prompt.
 pub async fn llm_turn(
     deps: &WorkflowDeps,
     ctx: &TurnContext,
     workflow_prompt: WorkflowPrompt,
-    options: TurnOptions<'_>,
 ) -> anyhow::Result<TurnResult> {
-    let messages = build_history(&ctx.history, &ctx.stored_turns)?;
-    let (history, prompt) = split_prompt(messages, options.instruction)?;
+    let mut history = build_history(&ctx.history, &ctx.stored_turns)?;
+    let prompt = history
+        .pop()
+        .context("the turn has no message to use as the prompt")?;
     let request = TurnRequest {
         model_id: deps.model.current(),
-        system_prompt: SystemPrompt::build(workflow_prompt, options.extra, &ctx.runtime),
+        system_prompt: SystemPrompt::build(workflow_prompt, &ctx.runtime),
         history,
         prompt,
         sandbox: Some(Arc::clone(&ctx.sandbox)),
         stats: ctx.stats.clone(),
     };
     Ok(deps.llm.run(request).await?)
-}
-
-fn split_prompt(
-    mut messages: Vec<Message>,
-    instruction: Option<&str>,
-) -> anyhow::Result<(Vec<Message>, Message)> {
-    match instruction {
-        Some(text) => Ok((messages, Message::user(text))),
-        None => {
-            let prompt = messages
-                .pop()
-                .context("the turn has no message to use as the prompt")?;
-            Ok((messages, prompt))
-        }
-    }
 }
 
 #[cfg(test)]
@@ -144,12 +110,8 @@ mod tests {
             user_message(3, "how do I add a plugin?"),
         ])
         .await;
-        let options = TurnOptions {
-            extra: None,
-            instruction: None,
-        };
 
-        llm_turn(&deps(&server).await, &ctx, WorkflowPrompt::Chat, options)
+        llm_turn(&deps(&server).await, &ctx, WorkflowPrompt::Chat)
             .await
             .unwrap();
 
@@ -161,35 +123,6 @@ mod tests {
                 { "role": "user", "content": user_turn_text(1, "hi nuki") },
                 { "role": "assistant", "content": "Hi! What do you need?" },
                 { "role": "user", "content": user_turn_text(3, "how do I add a plugin?") }
-            ])
-        );
-    }
-
-    #[tokio::test]
-    async fn llm_turn_sends_the_instruction_as_the_prompt() {
-        let server = MockServer::start().await;
-        mount_llm_replies(&server, &[FINAL_TEXT]).await;
-        let ctx = context(vec![
-            user_message(1, "playback stops"),
-            nuki_message(2, "Which version do you use?"),
-        ])
-        .await;
-        let options = TurnOptions {
-            extra: None,
-            instruction: Some("Write the final checks now."),
-        };
-
-        llm_turn(&deps(&server).await, &ctx, WorkflowPrompt::Chat, options)
-            .await
-            .unwrap();
-
-        let bodies = llm_request_bodies(&server).await;
-        assert_eq!(
-            messages_after_system_prompt(&bodies[0]),
-            json!([
-                { "role": "user", "content": user_turn_text(1, "playback stops") },
-                { "role": "assistant", "content": "Which version do you use?" },
-                { "role": "user", "content": "Write the final checks now." }
             ])
         );
     }

@@ -1,6 +1,7 @@
 pub mod discord;
 pub mod github;
 pub mod repo;
+pub mod reports;
 pub mod web;
 
 use std::sync::Arc;
@@ -10,17 +11,19 @@ use crate::repos::manager::RepoManager;
 use crate::sandbox::operation::OperationTable;
 
 /// Returns all operations of `run_script`: `discord.*`, then `repo.*`, then `github.*`, then
-/// `web.*`.
+/// `web.*`, then `reports.*`.
 pub fn full_table(
     discord: discord::DiscordOps,
     repos: Arc<RepoManager>,
     github: Arc<GitHubClient>,
     web: web::WebOps,
+    reports: reports::ReportsOps,
 ) -> OperationTable {
     OperationTable::merge([
         discord::discord_table(discord),
         repo::repo_table(repos),
         github::github_table(github),
         web::web_table(web),
+        reports::reports_table(reports),
     ])
 }

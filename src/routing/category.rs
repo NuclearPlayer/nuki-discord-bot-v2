@@ -1,26 +1,17 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Category {
-    HelpRequest,
-    BugReport,
-    FeatureRequest,
+    /// A question about Nuclear, a report of a problem, or a request for a feature or a change.
+    Help,
     Chat,
     Ignore,
 }
 
 impl Category {
-    pub const ALL: [Category; 5] = [
-        Category::HelpRequest,
-        Category::BugReport,
-        Category::FeatureRequest,
-        Category::Chat,
-        Category::Ignore,
-    ];
+    pub const ALL: [Category; 3] = [Category::Help, Category::Chat, Category::Ignore];
 
     pub fn name(self) -> &'static str {
         match self {
-            Category::HelpRequest => "help_request",
-            Category::BugReport => "bug_report",
-            Category::FeatureRequest => "feature_request",
+            Category::Help => "help",
             Category::Chat => "chat",
             Category::Ignore => "ignore",
         }
@@ -41,35 +32,17 @@ mod tests {
     fn name_returns_the_snake_case_name_of_each_variant() {
         let names = Category::ALL.map(Category::name);
 
-        assert_eq!(
-            names,
-            [
-                "help_request",
-                "bug_report",
-                "feature_request",
-                "chat",
-                "ignore"
-            ]
-        );
+        assert_eq!(names, ["help", "chat", "ignore"]);
     }
 
     #[test]
     fn from_name_returns_the_variant_of_each_name() {
-        let parsed = [
-            "help_request",
-            "bug_report",
-            "feature_request",
-            "chat",
-            "ignore",
-        ]
-        .map(Category::from_name);
+        let parsed = ["help", "chat", "ignore"].map(Category::from_name);
 
         assert_eq!(
             parsed,
             [
-                Some(Category::HelpRequest),
-                Some(Category::BugReport),
-                Some(Category::FeatureRequest),
+                Some(Category::Help),
                 Some(Category::Chat),
                 Some(Category::Ignore),
             ]
@@ -78,6 +51,6 @@ mod tests {
 
     #[test]
     fn from_name_returns_none_for_an_unknown_name() {
-        assert_eq!(Category::from_name("spam"), None);
+        assert_eq!(Category::from_name("bug_report"), None);
     }
 }

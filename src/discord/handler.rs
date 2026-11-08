@@ -19,14 +19,12 @@ pub fn facts_of(
     message: &Message,
     nuki_user_id: u64,
     nuki_role_id: Option<RoleId>,
-    in_open_intake_thread: bool,
 ) -> MessageFacts {
     let nuki = UserId::new(nuki_user_id);
     MessageFacts {
         author_is_bot: message.author.bot,
         is_system: is_system(message),
         is_dm: message.guild_id.is_none(),
-        in_open_intake_thread,
         mentions_nuki: message.mentions_user_id(nuki),
         mentions_nuki_role: nuki_role_id
             .is_some_and(|role_id| message.mention_roles.contains(&role_id)),
@@ -58,11 +56,10 @@ impl EventHandler for Handler {
         register_commands(&ctx).await;
     }
 
-    /// Debounces each message that has a trigger. This filter works without the channel's
-    /// intake and Nuki's role, because each message that it discards has no trigger. The
-    /// pipeline finds the intake and the role.
+    /// Debounces each message that has a trigger. This filter works without Nuki's role, because
+    /// each message that it discards has no trigger. The pipeline finds the role.
     async fn message(&self, _ctx: Context, message: Message) {
-        let facts = facts_of(&message, self.app.nuki.user_id, None, false);
+        let facts = facts_of(&message, self.app.nuki.user_id, None);
         if trigger_of(&facts).is_none() {
             return;
         }
@@ -113,12 +110,11 @@ mod tests {
         ));
 
         assert_eq!(
-            facts_of(&regular, NUKI_USER_ID, None, false),
+            facts_of(&regular, NUKI_USER_ID, None),
             MessageFacts {
                 author_is_bot: false,
                 is_system: false,
                 is_dm: false,
-                in_open_intake_thread: false,
                 mentions_nuki: false,
                 mentions_nuki_role: false,
                 replies_to_nuki: false,
@@ -133,12 +129,11 @@ mod tests {
         ));
 
         assert_eq!(
-            facts_of(&reply, NUKI_USER_ID, None, true),
+            facts_of(&reply, NUKI_USER_ID, None),
             MessageFacts {
                 author_is_bot: false,
                 is_system: false,
                 is_dm: false,
-                in_open_intake_thread: true,
                 mentions_nuki: false,
                 mentions_nuki_role: false,
                 replies_to_nuki: true,
@@ -153,12 +148,11 @@ mod tests {
         ));
 
         assert_eq!(
-            facts_of(&mention, NUKI_USER_ID, Some(NUKI_ROLE_ID), false),
+            facts_of(&mention, NUKI_USER_ID, Some(NUKI_ROLE_ID)),
             MessageFacts {
                 author_is_bot: false,
                 is_system: false,
                 is_dm: false,
-                in_open_intake_thread: false,
                 mentions_nuki: true,
                 mentions_nuki_role: false,
                 replies_to_nuki: false,
@@ -173,12 +167,11 @@ mod tests {
         ));
 
         assert_eq!(
-            facts_of(&mention, NUKI_USER_ID, Some(NUKI_ROLE_ID), false),
+            facts_of(&mention, NUKI_USER_ID, Some(NUKI_ROLE_ID)),
             MessageFacts {
                 author_is_bot: false,
                 is_system: false,
                 is_dm: false,
-                in_open_intake_thread: false,
                 mentions_nuki: false,
                 mentions_nuki_role: true,
                 replies_to_nuki: false,
@@ -193,12 +186,11 @@ mod tests {
         ));
 
         assert_eq!(
-            facts_of(&mention, NUKI_USER_ID, Some(OTHER_ROLE_ID), false),
+            facts_of(&mention, NUKI_USER_ID, Some(OTHER_ROLE_ID)),
             MessageFacts {
                 author_is_bot: false,
                 is_system: false,
                 is_dm: false,
-                in_open_intake_thread: false,
                 mentions_nuki: false,
                 mentions_nuki_role: false,
                 replies_to_nuki: false,
@@ -213,12 +205,11 @@ mod tests {
         ));
 
         assert_eq!(
-            facts_of(&join, NUKI_USER_ID, None, false),
+            facts_of(&join, NUKI_USER_ID, None),
             MessageFacts {
                 author_is_bot: false,
                 is_system: true,
                 is_dm: false,
-                in_open_intake_thread: false,
                 mentions_nuki: false,
                 mentions_nuki_role: false,
                 replies_to_nuki: false,
@@ -233,12 +224,11 @@ mod tests {
         ));
 
         assert_eq!(
-            facts_of(&bot, NUKI_USER_ID, None, false),
+            facts_of(&bot, NUKI_USER_ID, None),
             MessageFacts {
                 author_is_bot: true,
                 is_system: false,
                 is_dm: false,
-                in_open_intake_thread: false,
                 mentions_nuki: false,
                 mentions_nuki_role: false,
                 replies_to_nuki: false,
@@ -251,12 +241,11 @@ mod tests {
         let dm = message(include_str!("../../tests/fixtures/discord/handler_dm.json"));
 
         assert_eq!(
-            facts_of(&dm, NUKI_USER_ID, None, false),
+            facts_of(&dm, NUKI_USER_ID, None),
             MessageFacts {
                 author_is_bot: false,
                 is_system: false,
                 is_dm: true,
-                in_open_intake_thread: false,
                 mentions_nuki: false,
                 mentions_nuki_role: false,
                 replies_to_nuki: false,

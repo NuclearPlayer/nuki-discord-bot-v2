@@ -3,22 +3,19 @@ use std::fmt;
 use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::prompts::files::{
-    EXAMPLES, KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_BUG_INTAKE, WORKFLOW_CHAT,
-    WORKFLOW_FEATURE_INTAKE,
+    EXAMPLES, KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_CHAT, WORKFLOW_HELP,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowPrompt {
-    BugIntake,
-    FeatureIntake,
+    Help,
     Chat,
 }
 
 impl WorkflowPrompt {
     pub fn text(self) -> &'static str {
         match self {
-            WorkflowPrompt::BugIntake => WORKFLOW_BUG_INTAKE,
-            WorkflowPrompt::FeatureIntake => WORKFLOW_FEATURE_INTAKE,
+            WorkflowPrompt::Help => WORKFLOW_HELP,
             WorkflowPrompt::Chat => WORKFLOW_CHAT,
         }
     }
@@ -47,6 +44,8 @@ pub struct RuntimeContext {
     pub bot_user_id: u64,
     pub emoji: Vec<CustomEmoji>,
     pub channel_name: String,
+    /// The ID of the current channel or thread.
+    pub channel_id: u64,
     pub now: DateTime<Utc>,
 }
 
@@ -57,12 +56,13 @@ impl RuntimeContext {
             \n\
             You are {name}, with the user ID {id}. Users mention you with <@{id}>.\n\
             Custom emoji of this server: {emoji}\n\
-            Current channel: #{channel}\n\
+            Current channel: #{channel}, with the channel ID {channel_id}\n\
             Current time: {now}",
             name = self.bot_name,
             id = self.bot_user_id,
             emoji = emoji_list(&self.emoji),
             channel = self.channel_name,
+            channel_id = self.channel_id,
             now = self.now.to_rfc3339_opts(SecondsFormat::Secs, true),
         )
     }
@@ -82,19 +82,20 @@ fn emoji_list(emoji: &[CustomEmoji]) -> String {
 pub struct SystemPrompt;
 
 impl SystemPrompt {
-    pub fn build(
-        workflow: WorkflowPrompt,
-        extra: Option<&str>,
-        runtime: &RuntimeContext,
-    ) -> String {
+    pub fn build(workflow: WorkflowPrompt, runtime: &RuntimeContext) -> String {
         let runtime_section = runtime.section();
-        [PERSONALITY, EXAMPLES, NUCLEAR, KNOWLEDGE, workflow.text()]
-            .into_iter()
-            .chain(extra)
-            .chain([runtime_section.as_str()])
-            .map(str::trim)
-            .collect::<Vec<_>>()
-            .join("\n\n")
+        [
+            PERSONALITY,
+            NUCLEAR,
+            KNOWLEDGE,
+            workflow.text(),
+            runtime_section.as_str(),
+            EXAMPLES,
+        ]
+        .into_iter()
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n\n")
     }
 }
 
@@ -108,6 +109,7 @@ mod tests {
             bot_user_id: 1_234_567_890,
             emoji,
             channel_name: "general".to_string(),
+            channel_id: 1200000000000000001,
             now: DateTime::parse_from_rfc3339("2026-10-19T12:34:56.789Z")
                 .unwrap()
                 .with_timezone(&Utc),
@@ -139,7 +141,7 @@ mod tests {
             \n\
             You are Nuki, with the user ID 1234567890. Users mention you with <@1234567890>.\n\
             Custom emoji of this server: <:nuki_wave:111>, <a:nuki_dance:222>\n\
-            Current channel: #general\n\
+            Current channel: #general, with the channel ID 1200000000000000001\n\
             Current time: 2026-10-19T12:34:56Z"
         );
     }
@@ -154,7 +156,7 @@ mod tests {
             \n\
             You are Nuki, with the user ID 1234567890. Users mention you with <@1234567890>.\n\
             Custom emoji of this server: none\n\
-            Current channel: #general\n\
+            Current channel: #general, with the channel ID 1200000000000000001\n\
             Current time: 2026-10-19T12:34:56Z"
         );
     }

@@ -138,7 +138,7 @@ mod tests {
         let before = Utc::now();
 
         admin_log
-            .report_error(run.scope(None), "help_request", &error)
+            .report_error(run.scope(None), "help", &error)
             .await;
 
         let after = Utc::now();
@@ -147,7 +147,7 @@ mod tests {
             vec![run_event(
                 "error",
                 json!({
-                    "workflow": "help_request",
+                    "workflow": "help",
                     "error": "the Jev request failed: connection refused",
                 }),
             )]

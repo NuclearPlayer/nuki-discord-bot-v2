@@ -69,7 +69,6 @@ mod tests {
             author_is_bot: false,
             is_system: false,
             is_dm: false,
-            in_open_intake_thread: false,
             mentions_nuki: false,
             mentions_nuki_role: true,
             replies_to_nuki: false,
@@ -93,20 +92,20 @@ mod tests {
     fn unit_routed_of_a_run_decision() {
         let classification = Classification {
             probabilities: indexmap! {
-                Category::HelpRequest => 0.78,
+                Category::Help => 0.78,
                 Category::Chat => 0.22,
             },
         };
 
         assert_eq!(
-            unit_routed(2, &classification, &Decision::Run(Category::HelpRequest)),
+            unit_routed(2, &classification, &Decision::Run(Category::Help)),
             UnitRouted {
                 message_count: 2,
                 probabilities: BTreeMap::from([
-                    ("help_request".to_string(), 0.78),
+                    ("help".to_string(), 0.78),
                     ("chat".to_string(), 0.22),
                 ]),
-                decision: "run help_request".to_string(),
+                decision: "run help".to_string(),
             }
         );
     }

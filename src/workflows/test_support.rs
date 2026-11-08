@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{TimeZone, Utc};
-use serde_json::{Map, Value, json};
 use wiremock::MockServer;
 
 use super::{TurnContext, WorkflowDeps};
@@ -11,7 +10,6 @@ use crate::discord::chat_message::ChatMessage;
 use crate::discord::test_support::resolved;
 use crate::llm::agent::LlmClient;
 use crate::llm::selection::ActiveModel;
-use crate::prompts::questions::bug_fields;
 use crate::prompts::system::RuntimeContext;
 use crate::sandbox::runtime::{Sandbox, SandboxLimits};
 use crate::sandbox::test_support::echo_table;
@@ -25,41 +23,6 @@ pub(crate) async fn deps(server: &MockServer) -> WorkflowDeps {
         jev: Arc::new(JevClient::new("jev-key".to_string(), server.uri())),
         model: Arc::new(ActiveModel::load(settings, "test/model").await.unwrap()),
     }
-}
-
-/// Returns the names of the bug fields, in the file's sequence. The tests do not copy the names,
-/// because the names are prompt text.
-pub(crate) fn bug_field_names() -> Vec<String> {
-    bug_fields().keys().cloned().collect()
-}
-
-/// Returns Jev's answers for the bug fields, in the opposite of the file's sequence. The answer
-/// for the field at `index` is `probability(index)`.
-pub(crate) fn bug_field_answers(probability: impl Fn(usize) -> f64) -> Value {
-    let answers: Map<String, Value> = bug_field_names()
-        .into_iter()
-        .enumerate()
-        .rev()
-        .map(|(index, name)| (name, json!({ "type": "noul", "noul": probability(index) })))
-        .collect();
-    Value::Object(answers)
-}
-
-/// Returns Jev's answers for the bug fields, with the second and the third field missing. The
-/// answer for the second field is equal to one half. From the fourth field, the answers are a
-/// little above one half.
-pub(crate) fn bug_fields_missing() -> Value {
-    bug_field_answers(|index| match index {
-        0 => 0.93,
-        1 => 0.5,
-        2 => 0.2,
-        _ => 0.51,
-    })
-}
-
-/// Returns the names of the fields that `bug_fields_missing` gives as missing.
-pub(crate) fn missing_bug_field_names() -> Vec<String> {
-    bug_field_names()[1..3].to_vec()
 }
 
 pub(crate) fn user_turn_text(id: u64, content: &str) -> String {
@@ -92,6 +55,7 @@ fn runtime() -> RuntimeContext {
         bot_user_id: 1700000000000000001,
         emoji: vec![],
         channel_name: "general".to_string(),
+        channel_id: 1200000000000000001,
         now: Utc.with_ymd_and_hms(2026, 10, 19, 12, 40, 0).unwrap(),
     }
 }

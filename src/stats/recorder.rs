@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 
 use crate::stats::event::Event;
 use crate::store::events::{EventStore, NewEvent};
@@ -84,14 +84,9 @@ pub fn run_id_of_unit(last_message_id: u64) -> String {
     format!("unit-{last_message_id}")
 }
 
-/// Returns the run ID for the completion of an inactive intake.
-pub fn run_id_of_timeout(intake_id: i64, now: DateTime<Utc>) -> String {
-    format!("timeout-{intake_id}-{}", now.timestamp_millis())
-}
-
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use chrono::Utc;
     use serde_json::json;
 
     use super::*;
@@ -136,12 +131,5 @@ mod tests {
     #[test]
     fn run_id_of_unit_is_unit_and_the_last_message_id() {
         assert_eq!(run_id_of_unit(1234), "unit-1234");
-    }
-
-    #[test]
-    fn run_id_of_timeout_is_timeout_the_intake_id_and_the_time_in_ms() {
-        let now = Utc.with_ymd_and_hms(2026, 10, 19, 12, 0, 0).unwrap();
-
-        assert_eq!(run_id_of_timeout(5, now), "timeout-5-1792411200000");
     }
 }

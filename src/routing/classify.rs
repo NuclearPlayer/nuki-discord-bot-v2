@@ -4,7 +4,7 @@ use indexmap::{IndexMap, indexmap};
 use serde_json::json;
 
 use super::category::Category;
-use super::trigger::ClassifiedTrigger;
+use super::trigger::Trigger;
 use crate::decisions::client::{DecisionError, JevClient};
 use crate::decisions::types::{Answer, Question};
 use crate::prompts::questions::category;
@@ -53,7 +53,7 @@ impl Classifier {
 
     pub async fn classify(
         &self,
-        trigger: ClassifiedTrigger,
+        trigger: Trigger,
         history_lines: &[String],
         new_lines: &[String],
         stats: &RunStats,
@@ -74,7 +74,7 @@ impl Classifier {
 
 /// For a direct message, the question has no `ignore` option, because Nuki always replies to a
 /// direct message.
-fn category_question(trigger: ClassifiedTrigger) -> Question {
+fn category_question(trigger: Trigger) -> Question {
     let question = category();
     let criteria = question
         .options
@@ -88,10 +88,10 @@ fn category_question(trigger: ClassifiedTrigger) -> Question {
     }
 }
 
-fn offers(trigger: ClassifiedTrigger, option_name: &str) -> bool {
+fn offers(trigger: Trigger, option_name: &str) -> bool {
     match trigger {
-        ClassifiedTrigger::Direct => option_name != Category::Ignore.name(),
-        ClassifiedTrigger::Unsolicited => true,
+        Trigger::Direct => option_name != Category::Ignore.name(),
+        Trigger::Unsolicited => true,
     }
 }
 
@@ -172,14 +172,14 @@ mod tests {
 
     async fn classify_against(
         server: &MockServer,
-        trigger: ClassifiedTrigger,
+        trigger: Trigger,
     ) -> Result<Classification, ClassifyError> {
         classify_in_run(server, trigger, &unrecorded_run().await).await
     }
 
     async fn classify_in_run(
         server: &MockServer,
-        trigger: ClassifiedTrigger,
+        trigger: Trigger,
         stats: &RunStats,
     ) -> Result<Classification, ClassifyError> {
         Classifier::new(Arc::new(JevClient::new(
@@ -192,54 +192,32 @@ mod tests {
 
     #[tokio::test]
     async fn direct_requests_omit_the_ignore_option() {
-        let server = jev_answering(category_answer(&[("bug_report", 1.0)])).await;
+        let server = jev_answering(category_answer(&[("help", 1.0)])).await;
 
-        classify_against(&server, ClassifiedTrigger::Direct)
-            .await
-            .unwrap();
+        classify_against(&server, Trigger::Direct).await.unwrap();
 
-        assert_category_request(
-            &server,
-            &["help_request", "bug_report", "feature_request", "chat"],
-        )
-        .await;
+        assert_category_request(&server, &["help", "chat"]).await;
     }
 
     #[tokio::test]
     async fn unsolicited_requests_contain_all_options() {
-        let server = jev_answering(category_answer(&[("bug_report", 1.0)])).await;
+        let server = jev_answering(category_answer(&[("help", 1.0)])).await;
 
-        classify_against(&server, ClassifiedTrigger::Unsolicited)
+        classify_against(&server, Trigger::Unsolicited)
             .await
             .unwrap();
 
-        assert_category_request(
-            &server,
-            &[
-                "help_request",
-                "bug_report",
-                "feature_request",
-                "chat",
-                "ignore",
-            ],
-        )
-        .await;
+        assert_category_request(&server, &["help", "chat", "ignore"]).await;
     }
 
     #[tokio::test]
     async fn classify_maps_the_probabilities_to_categories() {
-        let answers = category_answer(&[
-            ("help_request", 0.78),
-            ("bug_report", 0.10),
-            ("feature_request", 0.02),
-            ("chat", 0.07),
-            ("ignore", 0.03),
-        ]);
+        let answers = category_answer(&[("help", 0.78), ("chat", 0.19), ("ignore", 0.03)]);
         let server = jev_answering(answers.clone()).await;
         let (store, stats) = test_run().await;
         let before = Utc::now();
 
-        let classification = classify_in_run(&server, ClassifiedTrigger::Unsolicited, &stats)
+        let classification = classify_in_run(&server, Trigger::Unsolicited, &stats)
             .await
             .unwrap();
 
@@ -264,10 +242,8 @@ mod tests {
             classification,
             Classification {
                 probabilities: indexmap! {
-                    Category::HelpRequest => 0.78,
-                    Category::BugReport => 0.10,
-                    Category::FeatureRequest => 0.02,
-                    Category::Chat => 0.07,
+                    Category::Help => 0.78,
+                    Category::Chat => 0.19,
                     Category::Ignore => 0.03,
                 },
             }
@@ -276,9 +252,9 @@ mod tests {
 
     #[tokio::test]
     async fn classify_fails_on_an_unknown_category() {
-        let server = jev_answering(category_answer(&[("help_request", 0.6), ("spam", 0.4)])).await;
+        let server = jev_answering(category_answer(&[("help", 0.6), ("spam", 0.4)])).await;
 
-        let error = classify_against(&server, ClassifiedTrigger::Unsolicited)
+        let error = classify_against(&server, Trigger::Unsolicited)
             .await
             .unwrap_err();
 
@@ -293,14 +269,14 @@ mod tests {
         let server = jev_answering(json!({
             "category": {
                 "type": "choice",
-                "choice": "help_request",
+                "choice": "help",
                 "confidence": 0.0,
                 "probabilities": {},
             }
         }))
         .await;
 
-        let error = classify_against(&server, ClassifiedTrigger::Unsolicited)
+        let error = classify_against(&server, Trigger::Unsolicited)
             .await
             .unwrap_err();
 
@@ -314,7 +290,7 @@ mod tests {
     async fn classify_fails_without_a_category_answer() {
         let server = jev_answering(json!({})).await;
 
-        let error = classify_against(&server, ClassifiedTrigger::Unsolicited)
+        let error = classify_against(&server, Trigger::Unsolicited)
             .await
             .unwrap_err();
 
@@ -328,7 +304,7 @@ mod tests {
     async fn classify_fails_on_a_category_answer_that_is_not_a_choice() {
         let server = jev_answering(json!({ "category": { "type": "noul", "noul": 0.9 } })).await;
 
-        let error = classify_against(&server, ClassifiedTrigger::Unsolicited)
+        let error = classify_against(&server, Trigger::Unsolicited)
             .await
             .unwrap_err();
 
@@ -342,12 +318,12 @@ mod tests {
     fn top_returns_the_category_with_the_highest_probability() {
         let classification = Classification {
             probabilities: indexmap! {
-                Category::HelpRequest => 0.10,
-                Category::BugReport => 0.86,
-                Category::Chat => 0.04,
+                Category::Help => 0.10,
+                Category::Chat => 0.86,
+                Category::Ignore => 0.04,
             },
         };
 
-        assert_eq!(classification.top(), (Category::BugReport, 0.86));
+        assert_eq!(classification.top(), (Category::Chat, 0.86));
     }
 }

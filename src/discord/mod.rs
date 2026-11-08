@@ -7,7 +7,6 @@ pub(crate) mod events;
 pub mod handler;
 pub mod history;
 mod http_error;
-pub mod intake_thread;
 pub mod modality;
 pub mod pipeline;
 pub mod reply;

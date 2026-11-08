@@ -1,4 +1,5 @@
 pub const PERSONALITY: &str = include_str!("../../prompts/personality.md");
+pub const EXAMPLES: &str = include_str!("../../prompts/examples.md");
 pub const NUCLEAR: &str = include_str!("../../prompts/nuclear.md");
 pub const KNOWLEDGE: &str = include_str!("../../prompts/knowledge.md");
 

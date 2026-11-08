@@ -177,7 +177,7 @@ CI runs the same commands in `.github/workflows/ci.yml`.
 
 The prompts are Markdown files in `prompts/`. `src/prompts/files.rs` compiles each file into the binary as one constant, with `include_str!`. To add a prompt file, add a constant for it in `src/prompts/files.rs`.
 
-`SystemPrompt::build` puts these parts in sequence: `personality.md`, `nuclear.md`, `knowledge.md`, the workflow prompt from `prompts/workflows/`, the extra text of the turn, and the "Current context" section.
+`SystemPrompt::build` puts these parts in sequence: `personality.md`, `examples.md`, `nuclear.md`, `knowledge.md`, the workflow prompt from `prompts/workflows/`, the extra text of the turn, and the "Current context" section.
 
 `src/prompts/questions.rs` parses the files in `prompts/decisions/`. Each file has its format:
 

@@ -3,7 +3,8 @@ use std::fmt;
 use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::prompts::files::{
-    KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_BUG_INTAKE, WORKFLOW_CHAT, WORKFLOW_FEATURE_INTAKE,
+    EXAMPLES, KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_BUG_INTAKE, WORKFLOW_CHAT,
+    WORKFLOW_FEATURE_INTAKE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,7 +88,7 @@ impl SystemPrompt {
         runtime: &RuntimeContext,
     ) -> String {
         let runtime_section = runtime.section();
-        [PERSONALITY, NUCLEAR, KNOWLEDGE, workflow.text()]
+        [PERSONALITY, EXAMPLES, NUCLEAR, KNOWLEDGE, workflow.text()]
             .into_iter()
             .chain(extra)
             .chain([runtime_section.as_str()])

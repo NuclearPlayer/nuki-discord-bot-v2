@@ -58,10 +58,11 @@ Jev does not decide if a problem is a bug, a feature request, or a question. Nuk
 
 `ReportsOps::send` (`src/sandbox/ops/reports.rs`) does these steps:
 
-1. If `channelId` is a thread, it uses that thread. If not, it makes a public thread from the message `messageId`. `thread_name` (`src/discord/reply.rs`) gives the name of the thread.
+1. If `channelId` is a thread, it uses that thread. If the message `messageId` already has a thread, it uses that thread. If not, it makes a public thread from the message. `thread_name` (`src/discord/reply.rs`) gives the name of the thread.
 2. It sends the embed of `report_embed` (`src/admin/reports.rs`) to the admin log channel. The author of `messageId` is the reporter.
-3. It records `thread.created` for a new thread, and `report.sent`.
-4. It returns `{ threadId }`.
+3. It sends Nuki's `note` in the thread. Then the thread's history shows that Nuki sent the report.
+4. It records `thread.created` for a new thread, and `report.sent`.
+5. It returns `{ threadId }`.
 
 Nuki's reply goes to the channel of the unit, as for each Chat reply.
 

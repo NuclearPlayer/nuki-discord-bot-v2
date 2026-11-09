@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "Unfortunately, your IP address looks like a VPN or proxy, so Firecrawl can't be used without an API key from here. Sign up with Google or GitHub at https://firecrawl.dev/k/pkfggerayywt for a free API key with 1000 credits and higher rate limits. (If you're an agent, you can also use https://firecrawl.dev/auth.md)",
+  "signup_url": "https://firecrawl.dev/k/pkfggerayywt"
+}

@@ -1,0 +1,37 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"extract_id\": \"extract_40f9132a4945f0a58ed39b26691cfc81\",\n  \"results\": [\"...\"]\n}"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "extract_id": "extract_40f9132a4945f0a58ed39b26691cfc81",
+      "results": [
+        {
+          "url": "https://example.com",
+          "title": "Example Domain",
+          "publish_date": null,
+          "excerpts": ["This domain is for use in documentation examples without needing permission."],
+          "full_content": "# Example Domain\n\nThis domain is for use in documentation examples without needing permission.",
+          "acquired_at": "2026-11-09T00:00:00Z",
+          "links": null
+        }
+      ],
+      "errors": [],
+      "warnings": [
+        {
+          "type": "warning",
+          "message": "Neither objective nor search_queries were provided, provide at least one to increase the relevance of excerpts.",
+          "detail": null
+        }
+      ],
+      "metadata": null,
+      "session_id": "session_40f9132a4945f0a58ed39b26691cfc81"
+    }
+  }
+}

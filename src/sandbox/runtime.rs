@@ -20,9 +20,16 @@ pub struct SandboxLimits {
 }
 
 impl SandboxLimits {
+    /// Returns the limits of the scripts that the LLM runs.
+    ///
+    /// - `timeout` stops a script that does not end. It must be more than the worst time of the
+    ///   web chain: 4 providers × 12 seconds = 48 seconds. If not, the sandbox stops a `web.*`
+    ///   call before the chain tries all providers.
+    /// - `max_output_bytes` keeps one tool result from filling the LLM's context.
+    /// - `memory_limit_bytes` stops a script that uses too much memory.
     pub fn production() -> Self {
         Self {
-            timeout: Duration::from_secs(10),
+            timeout: Duration::from_secs(60),
             max_output_bytes: 20_000,
             memory_limit_bytes: 64 * 1024 * 1024,
         }

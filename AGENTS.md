@@ -24,7 +24,7 @@ Nuki is a Rust Discord bot for the server of the Nuclear music player. `README.m
 9. `turn_context` (`src/discord/turn_context.rs`) makes the `TurnContext`: the history, the stored tool turns, the runtime context, and the sandbox for the server.
 10. The workflow calls `llm_turn` (`src/workflows/mod.rs`). `llm_turn` makes the LLM history with `build_history` (`src/discord/context.rs`) and the system prompt with `SystemPrompt::build` (`src/prompts/system.rs`).
 11. `LlmClient::run` (`src/llm/agent.rs`) runs the agent on OpenRouter with the active model. The agent can call the `run_script` tool 50 times at most. Then it must give its text.
-12. `run_script` (`src/llm/script_tool.rs`) runs the JS of the model in the QuickJS `Sandbox` (`src/sandbox/runtime.rs`). The script calls the `discord.*`, `repo.*`, `github.*`, `web.*`, and `reports.*` operations. Tavily does the web requests of `web.*`. `run_script` adds the reminder of `prompts/tools/reminder.md` after each result that the model gets.
+12. `run_script` (`src/llm/script_tool.rs`) runs the JS of the model in the QuickJS `Sandbox` (`src/sandbox/runtime.rs`). The sandbox stops a script after 60 seconds, and cuts its output to 20,000 bytes. The script calls the `discord.*`, `repo.*`, `github.*`, `web.*`, and `reports.*` operations. `WebChain` (`src/web/chain.rs`) does the web requests of `web.*`. It tries four keyless providers in this sequence: Tavily, Firecrawl, Exa, Parallel. Each request has a timeout of 12 seconds, so the chain ends before the sandbox stops the script. If a provider fails, `WebChain` sends the same request to the next provider. If all providers fail, the error lists the error of each provider. `WebChain` cuts the content of each search result to 500 characters. `run_script` adds the reminder of `prompts/tools/reminder.md` after each result that the model gets.
 13. The workflow returns an `Outcome`. `apply_outcome` (`src/discord/reply.rs`) sends the reply in parts of 2000 characters or less. It stores the tool turn in `tool_turns`, with the ID of the first part.
 
 If a step fails, `process_unit` sends the error to the admin log channel with `AdminLog::report_error` (`src/admin/log.rs`). Nuki sends nothing in the channel of the unit.
@@ -108,7 +108,7 @@ Nuki keeps its state in these locations:
 | Change the report or its embed | `src/sandbox/ops/reports.rs`, `src/admin/reports.rs`. |
 | Change how Nuki sends a reply | `src/discord/reply.rs`. |
 | Change the limit of model calls | `MAX_MODEL_CALLS` in `src/llm/agent.rs`. |
-| Change the sandbox limits | `SandboxLimits::production` in `src/sandbox/runtime.rs`. |
+| Change the sandbox limits | `SandboxLimits::production` in `src/sandbox/runtime.rs`. Keep the timeout above the worst time of the web chain, 4 × `WEB_TIMEOUT` in `src/app.rs`. |
 | Add a sandbox operation | `src/sandbox/ops/`. Refer to "Add a sandbox operation". |
 | Change the description of `run_script` | `prompts/tools/run-script.md`, `src/sandbox/declarations.rs`. |
 | Change the model list of `/change-model` | `ModelsClient::list` and `choices` in `src/llm/models_list.rs`. |
@@ -118,7 +118,9 @@ Nuki keeps its state in these locations:
 | Add an environment variable | `Config` in `src/config.rs`. |
 | Change the repositories that Nuki can read | `catalog` in `src/app.rs`, `src/repos/catalog.rs`. |
 | Change the GitHub requests | `src/github/client.rs`. |
-| Change the Tavily requests of `web.search` and `web.fetch` | `src/web/client.rs`, `src/web/types.rs`. |
+| Change the requests of `web.search` and `web.fetch` | The file of the provider in `src/web/`: `tavily.rs`, `firecrawl.rs`, `exa.rs`, or `parallel.rs`. `src/web/json_rpc.rs` sends the requests to Exa and Parallel. |
+| Change the web providers, their sequence, or their timeout | `web_chain` and `WEB_TIMEOUT` in `src/app.rs`. A new provider implements `WebProvider` (`src/web/provider.rs`). If you change the timeout, keep 4 × `WEB_TIMEOUT` below the timeout of `SandboxLimits::production`. |
+| Change the length of the search snippets or of the provider errors | `MAX_CONTENT_CHARS` in `src/web/chain.rs`, `MAX_MESSAGE_CHARS` in `src/web/provider.rs`. |
 | Change the Jev requests | `src/decisions/`. |
 | Change the fetch interval | `src/tasks.rs`, `src/config.rs`. |
 
@@ -140,7 +142,7 @@ The bot is one crate, `nuki`.
 | `src/sandbox/` | The QuickJS runtime, the operation table, the TypeScript declarations, and the operations in `ops/`, including `reports.send`. |
 | `src/repos/` | The repository catalog, the clone and fetch manager, the `git` CLI wrapper, and the read operations on the clones. |
 | `src/github/` | The read-only GitHub client. It uses REST for releases and pull requests, and GraphQL for Discussions. |
-| `src/web/` | The Tavily client for web search and page text. It uses Tavily's keyless access, with no API key. |
+| `src/web/` | The web providers for web search and page text: Tavily, Firecrawl, Exa, and Parallel. Each provider uses keyless access, with no API key. Exa and Parallel give keyless access only on their MCP endpoints, so `json_rpc.rs` sends one JSON-RPC `tools/call` POST to them. `WebChain` tries the providers in sequence. |
 | `src/stats/` | The usage event types, and the recorder that writes the events of each run to `events`. |
 | `src/store/` | The SQLite store: the tool turns, the settings, and the usage events. |
 | `src/admin/` | The report embeds and the error messages for the admin log channel. |

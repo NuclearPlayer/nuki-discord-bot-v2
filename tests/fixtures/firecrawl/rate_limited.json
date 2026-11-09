@@ -1,0 +1,7 @@
+{
+  "success": false,
+  "error": "You've hit Firecrawl's keyless free tier rate limit. To continue now, create a free API key at https://firecrawl.dev/k/pkfggerayywt\n\nThen authenticate with:\nAuthorization: Bearer YOUR_API_KEY",
+  "reason": "requests",
+  "retry_after_seconds": 41234,
+  "signup_url": "https://firecrawl.dev/k/pkfggerayywt"
+}

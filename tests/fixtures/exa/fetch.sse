@@ -1,0 +1,3 @@
+event: message
+data: {"result":{"content":[{"type":"text","text":"# Example Domain\nURL: https://example.com\n\nExample Domain\n\nThis domain is for use in documentation examples without needing permission.","_meta":{"searchTime":8.97989400010556}}]},"jsonrpc":"2.0","id":1}
+

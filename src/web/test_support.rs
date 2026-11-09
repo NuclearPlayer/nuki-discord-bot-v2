@@ -3,8 +3,9 @@ use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer};
 
 use crate::test_support::json_response;
-use crate::web::client::TavilyClient;
-use crate::web::types::SearchResult;
+use crate::web::chain::WebChain;
+use crate::web::provider::SearchResult;
+use crate::web::tavily::TavilyClient;
 
 pub(crate) const SEARCH: &str = include_str!("../../tests/fixtures/tavily/search.json");
 pub(crate) const EXTRACT: &str = include_str!("../../tests/fixtures/tavily/extract.json");
@@ -30,7 +31,12 @@ pub(crate) fn search_results() -> Vec<SearchResult> {
 }
 
 pub(crate) fn client_for(server: &MockServer) -> TavilyClient {
-    TavilyClient::new(server.uri().parse().unwrap())
+    TavilyClient::new(reqwest::Client::new(), server.uri().parse().unwrap())
+}
+
+/// Returns a chain with only the Tavily client of `server`.
+pub(crate) fn chain_for(server: &MockServer) -> WebChain {
+    WebChain::new(vec![Box::new(client_for(server))])
 }
 
 pub(crate) async fn mount_extract(server: &MockServer, url: &str, response: &str) {

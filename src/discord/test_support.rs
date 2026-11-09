@@ -21,7 +21,7 @@ use crate::routing::dispatch::Thresholds;
 use crate::stats::recorder::Stats;
 use crate::store::Store;
 use crate::test_support::discord_http;
-use crate::web::client::TavilyClient;
+use crate::web::test_support::chain_for;
 use crate::workflows::chat::ChatWorkflow;
 use crate::workflows::test_support::deps;
 
@@ -63,7 +63,7 @@ pub(crate) async fn test_app(server: &MockServer, repos_dir: &Path) -> App {
             server_url.clone(),
             server_url.clone(),
         )),
-        tavily: Arc::new(TavilyClient::new(server_url)),
+        web: Arc::new(chain_for(server)),
         admin_log: AdminLog {
             http: Arc::clone(&http),
             channel_id: config.admin_log_channel_id,

@@ -1,28 +1,13 @@
+use futures::future::BoxFuture;
 use reqwest::Url;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
-use thiserror::Error;
+use serde::{Deserialize, Serialize};
 
-use crate::web::types::{
-    ApiErrorBody, ExtractRequest, ExtractResponse, ExtractedPage, SearchRequest, SearchResponse,
-    SearchResult,
-};
+use crate::web::provider::{ProviderError, SearchResult, WebProvider, parse_json};
 
 /// The header that selects Tavily's keyless access. Nuki sends no API key.
 const ACCESS_MODE_HEADER: &str = "X-Tavily-Access-Mode";
 const KEYLESS: &str = "keyless";
-
-#[derive(Debug, Error)]
-pub enum TavilyError {
-    #[error("Tavily request failed: {0}")]
-    Http(#[from] reqwest::Error),
-    #[error("Tavily returned {status}: {message}")]
-    Api { status: u16, message: String },
-    #[error("Tavily could not read {url}: {message}")]
-    Failed { url: String, message: String },
-    #[error("Tavily returned no text for {url}")]
-    NoContent { url: String },
-}
 
 /// The client of the Tavily Search and Extract APIs.
 pub struct TavilyClient {
@@ -31,16 +16,80 @@ pub struct TavilyClient {
     api_base: Url,
 }
 
-impl TavilyClient {
-    pub fn new(api_base: Url) -> Self {
-        Self {
-            http: reqwest::Client::new(),
-            api_base,
-        }
+#[derive(Serialize)]
+struct SearchRequest<'a> {
+    query: &'a str,
+    max_results: u32,
+}
+
+/// Tavily sends its results in the shape of `SearchResult`.
+#[derive(Deserialize)]
+struct SearchResponse {
+    results: Vec<SearchResult>,
+}
+
+#[derive(Serialize)]
+struct ExtractRequest<'a> {
+    urls: [&'a str; 1],
+}
+
+#[derive(Deserialize)]
+struct ExtractResponse {
+    #[serde(default)]
+    results: Vec<ExtractedPage>,
+    #[serde(default)]
+    failed_results: Vec<FailedExtraction>,
+}
+
+#[derive(Deserialize)]
+struct ExtractedPage {
+    raw_content: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct FailedExtraction {
+    error: String,
+}
+
+/// The body of a Tavily error, for example `{ "detail": { "error": "..." } }`.
+#[derive(Deserialize)]
+struct ApiErrorBody {
+    detail: ApiErrorDetail,
+}
+
+#[derive(Deserialize)]
+struct ApiErrorDetail {
+    error: String,
+}
+
+impl WebProvider for TavilyClient {
+    fn name(&self) -> &'static str {
+        "tavily"
     }
 
-    /// Returns the results of a web search for `query`, at most `limit` of them.
-    pub async fn search(&self, query: &str, limit: u32) -> Result<Vec<SearchResult>, TavilyError> {
+    fn search<'a>(
+        &'a self,
+        query: &'a str,
+        limit: u32,
+    ) -> BoxFuture<'a, Result<Vec<SearchResult>, ProviderError>> {
+        Box::pin(self.search_results(query, limit))
+    }
+
+    fn fetch<'a>(&'a self, url: &'a str) -> BoxFuture<'a, Result<String, ProviderError>> {
+        Box::pin(self.fetch_page(url))
+    }
+}
+
+impl TavilyClient {
+    pub fn new(http: reqwest::Client, api_base: Url) -> Self {
+        Self { http, api_base }
+    }
+
+    async fn search_results(
+        &self,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<SearchResult>, ProviderError> {
         let body = SearchRequest {
             query,
             max_results: limit,
@@ -49,8 +98,7 @@ impl TavilyClient {
         Ok(response.results)
     }
 
-    /// Returns the text of the page at `url`. Tavily downloads the page, not Nuki.
-    pub async fn extract(&self, url: &str) -> Result<String, TavilyError> {
+    async fn fetch_page(&self, url: &str) -> Result<String, ProviderError> {
         let body = ExtractRequest { urls: [url] };
         let response: ExtractResponse = self.post("extract", &body).await?;
         page_text(response, url)
@@ -60,7 +108,7 @@ impl TavilyClient {
         &self,
         endpoint: &str,
         body: &B,
-    ) -> Result<T, TavilyError> {
+    ) -> Result<T, ProviderError> {
         let url = self
             .api_base
             .join(endpoint)
@@ -76,44 +124,44 @@ impl TavilyClient {
         if !status.is_success() {
             return Err(api_error(status.as_u16(), response.text().await?));
         }
-        Ok(response.json().await?)
+        parse_json(&response.text().await?)
     }
 }
 
 /// Returns the text of the one page that Nuki asked for. Tavily answers 200 also when it could
 /// not read the page, and then gives the reason in `failed_results`.
-fn page_text(response: ExtractResponse, url: &str) -> Result<String, TavilyError> {
+fn page_text(response: ExtractResponse, url: &str) -> Result<String, ProviderError> {
     if let Some(extracted) = response.results.into_iter().next() {
         return text_of(extracted, url);
     }
     match response.failed_results.into_iter().next() {
-        Some(failure) => Err(TavilyError::Failed {
+        Some(failure) => Err(ProviderError::Failed {
             url: url.to_string(),
             message: failure.error,
         }),
-        None => Err(TavilyError::NoContent {
+        None => Err(ProviderError::NoContent {
             url: url.to_string(),
         }),
     }
 }
 
 /// Returns the text of the page. If the text is missing or empty, returns `NoContent`.
-fn text_of(extracted: ExtractedPage, url: &str) -> Result<String, TavilyError> {
+fn text_of(extracted: ExtractedPage, url: &str) -> Result<String, ProviderError> {
     extracted
         .raw_content
         .filter(|text| !text.is_empty())
-        .ok_or_else(|| TavilyError::NoContent {
+        .ok_or_else(|| ProviderError::NoContent {
             url: url.to_string(),
         })
 }
 
 /// Makes the error of a Tavily answer that is not a success. Takes the message from
 /// `detail.error`. If the body has no such field, uses the full body as the message.
-fn api_error(status: u16, body: String) -> TavilyError {
+fn api_error(status: u16, body: String) -> ProviderError {
     let message = serde_json::from_str::<ApiErrorBody>(&body)
         .map(|error| error.detail.error)
         .unwrap_or(body);
-    TavilyError::Api { status, message }
+    ProviderError::Status { status, message }
 }
 
 #[cfg(test)]
@@ -123,6 +171,7 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use crate::test_support::json_response;
+    use crate::web::provider::WebProvider;
     use crate::web::test_support::{
         EXTRACT, EXTRACT_FAILED, EXTRACT_TEXT, RATE_LIMITED, SEARCH, client_for, search_results,
     };
@@ -135,9 +184,9 @@ mod tests {
             .await;
     }
 
-    async fn extract_error(server: &MockServer) -> String {
+    async fn fetch_error(server: &MockServer) -> String {
         client_for(server)
-            .extract("https://example.com")
+            .fetch("https://example.com")
             .await
             .unwrap_err()
             .to_string()
@@ -165,7 +214,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extract_sends_a_keyless_request_and_returns_the_text_of_the_page() {
+    async fn fetch_sends_a_keyless_request_and_returns_the_text_of_the_page() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/extract"))
@@ -176,7 +225,7 @@ mod tests {
             .await;
 
         let text = client_for(&server)
-            .extract("https://example.com")
+            .fetch("https://example.com")
             .await
             .unwrap();
 
@@ -184,7 +233,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extract_returns_the_reason_when_tavily_could_not_read_the_page() {
+    async fn fetch_returns_the_reason_when_tavily_could_not_read_the_page() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/extract"))
@@ -193,18 +242,18 @@ mod tests {
             .await;
 
         let error = client_for(&server)
-            .extract("https://thisdoesnotexist-xyz-123.example")
+            .fetch("https://thisdoesnotexist-xyz-123.example")
             .await
             .unwrap_err();
 
         assert_eq!(
             error.to_string(),
-            "Tavily could not read https://thisdoesnotexist-xyz-123.example: Failed to fetch url"
+            "could not read https://thisdoesnotexist-xyz-123.example: Failed to fetch url"
         );
     }
 
     #[tokio::test]
-    async fn extract_returns_no_content_when_the_text_of_the_page_is_null() {
+    async fn fetch_returns_no_content_when_the_text_of_the_page_is_null() {
         let server = MockServer::start().await;
         mount_extract_response(
             &server,
@@ -212,13 +261,13 @@ mod tests {
         )
         .await;
 
-        let error = extract_error(&server).await;
+        let error = fetch_error(&server).await;
 
-        assert_eq!(error, "Tavily returned no text for https://example.com");
+        assert_eq!(error, "no text for https://example.com");
     }
 
     #[tokio::test]
-    async fn extract_returns_no_content_when_the_text_of_the_page_is_empty() {
+    async fn fetch_returns_no_content_when_the_text_of_the_page_is_empty() {
         let server = MockServer::start().await;
         mount_extract_response(
             &server,
@@ -226,19 +275,19 @@ mod tests {
         )
         .await;
 
-        let error = extract_error(&server).await;
+        let error = fetch_error(&server).await;
 
-        assert_eq!(error, "Tavily returned no text for https://example.com");
+        assert_eq!(error, "no text for https://example.com");
     }
 
     #[tokio::test]
-    async fn extract_returns_no_content_when_tavily_gives_no_result_and_no_failure() {
+    async fn fetch_returns_no_content_when_tavily_gives_no_result_and_no_failure() {
         let server = MockServer::start().await;
         mount_extract_response(&server, json!({})).await;
 
-        let error = extract_error(&server).await;
+        let error = fetch_error(&server).await;
 
-        assert_eq!(error, "Tavily returned no text for https://example.com");
+        assert_eq!(error, "no text for https://example.com");
     }
 
     #[tokio::test]
@@ -254,7 +303,24 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "Tavily returned 429: Your request has been blocked due to excessive requests. Please reduce the rate of requests."
+            "HTTP 429: Your request has been blocked due to excessive requests. Please reduce the rate of requests."
+        );
+    }
+
+    #[tokio::test]
+    async fn search_returns_an_invalid_answer_when_the_body_is_not_json() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("<html>Maintenance</html>"))
+            .mount(&server)
+            .await;
+
+        let error = client_for(&server).search("nuclear", 5).await.unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "the answer is not valid: expected value at line 1 column 1"
         );
     }
 
@@ -269,6 +335,6 @@ mod tests {
 
         let error = client_for(&server).search("nuclear", 5).await.unwrap_err();
 
-        assert_eq!(error.to_string(), "Tavily returned 502: Bad Gateway");
+        assert_eq!(error.to_string(), "HTTP 502: Bad Gateway");
     }
 }

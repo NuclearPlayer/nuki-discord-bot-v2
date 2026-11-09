@@ -2,15 +2,15 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 
-use crate::web::client::{TavilyClient, TavilyError};
-use crate::web::types::SearchResult;
+use crate::web::chain::{ChainError, WebChain};
+use crate::web::provider::SearchResult;
 
 const DEFAULT_SEARCH_LIMIT: u32 = 5;
 const MAX_SEARCH_LIMIT: u32 = 20;
 
-/// The Tavily client that the `web.*` operations use.
+/// The chain of web providers that the `web.*` operations use.
 pub struct WebOps {
-    tavily: Arc<TavilyClient>,
+    chain: Arc<WebChain>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,21 +32,21 @@ fn default_search_limit() -> u32 {
 }
 
 impl WebOps {
-    pub fn new(tavily: Arc<TavilyClient>) -> Self {
-        Self { tavily }
+    pub fn new(chain: Arc<WebChain>) -> Self {
+        Self { chain }
     }
 
     /// Searches the web, with a limit from 1 to 20.
     pub(super) async fn search(
         &self,
         params: SearchParams,
-    ) -> Result<Vec<SearchResult>, TavilyError> {
+    ) -> Result<Vec<SearchResult>, ChainError> {
         let limit = params.limit.clamp(1, MAX_SEARCH_LIMIT);
-        self.tavily.search(&params.query, limit).await
+        self.chain.search(&params.query, limit).await
     }
 
     /// Returns the text of the page at the URL of `params`.
-    pub(super) async fn fetch(&self, params: FetchParams) -> Result<String, TavilyError> {
-        self.tavily.extract(&params.url).await
+    pub(super) async fn fetch(&self, params: FetchParams) -> Result<String, ChainError> {
+        self.chain.fetch(&params.url).await
     }
 }

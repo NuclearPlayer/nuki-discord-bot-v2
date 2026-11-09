@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "data": {
+    "web": [
+      {
+        "title": "Nuclear - Free Open-Source Music Player",
+        "description": "Nuclear is a free, open-source music player without ads or tracking.",
+        "url": "https://nuclearplayer.com/",
+        "position": 1
+      },
+      {
+        "title": "GitHub - nukeop/nuclear: Streaming music player that finds free music for you",
+        "description": "Streaming music player that finds free music for you.",
+        "url": "https://github.com/nukeop/nuclear",
+        "position": 2
+      }
+    ]
+  },
+  "warning": null,
+  "id": "0b9d2c6e-3f4a-4c1e-9a57-2d8e6f1b7c40",
+  "creditsUsed": 2
+}

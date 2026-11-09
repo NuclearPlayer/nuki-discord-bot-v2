@@ -26,7 +26,11 @@ use crate::sandbox::ops::web::WebOps;
 use crate::sandbox::runtime::{Sandbox, SandboxLimits};
 use crate::stats::recorder::{RunStats, Stats};
 use crate::store::Store;
-use crate::web::client::TavilyClient;
+use crate::web::chain::WebChain;
+use crate::web::exa::ExaClient;
+use crate::web::firecrawl::FirecrawlClient;
+use crate::web::parallel::ParallelClient;
+use crate::web::tavily::TavilyClient;
 use crate::workflows::WorkflowDeps;
 use crate::workflows::chat::ChatWorkflow;
 
@@ -37,6 +41,12 @@ const GITHUB_API_BASE: &str = "https://api.github.com";
 const GITHUB_GRAPHQL_URL: &str = "https://api.github.com/graphql";
 const GITHUB_ORG: &str = "NuclearPlayer";
 const TAVILY_API_BASE: &str = "https://api.tavily.com";
+const FIRECRAWL_API_BASE: &str = "https://api.firecrawl.dev";
+const EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp";
+const PARALLEL_MCP_URL: &str = "https://search.parallel.ai/mcp";
+/// The timeout of each request to a web provider. The four providers need 48 seconds at most,
+/// less than the script timeout of `SandboxLimits::production`.
+const WEB_TIMEOUT: Duration = Duration::from_secs(12);
 
 /// The Discord user of the bot.
 pub struct BotIdentity {
@@ -59,7 +69,7 @@ pub struct App {
     pub chat: ChatWorkflow,
     pub repos: Arc<RepoManager>,
     pub github: Arc<GitHubClient>,
-    pub tavily: Arc<TavilyClient>,
+    pub web: Arc<WebChain>,
     pub admin_log: AdminLog,
     pub rest: reqwest::Client,
 }
@@ -91,9 +101,7 @@ impl App {
             .await
             .with_context(|| format!("could not clone {NUCLEAR_REPO}"))?;
 
-        let tavily_api_base = Url::parse(TAVILY_API_BASE)
-            .with_context(|| format!("could not parse the Tavily API base {TAVILY_API_BASE}"))?;
-        let tavily = Arc::new(TavilyClient::new(tavily_api_base));
+        let web = Arc::new(web_chain()?);
 
         let http = Arc::new(Http::new(&config.discord_token));
         let current_user = http
@@ -135,7 +143,7 @@ impl App {
             chat: ChatWorkflow { deps },
             repos,
             github,
-            tavily,
+            web,
             admin_log: AdminLog {
                 http: Arc::clone(&http),
                 channel_id: config.admin_log_channel_id,
@@ -175,7 +183,7 @@ impl App {
             discord_ops,
             Arc::clone(&self.repos),
             Arc::clone(&self.github),
-            WebOps::new(Arc::clone(&self.tavily)),
+            WebOps::new(Arc::clone(&self.web)),
             reports_ops,
         );
         Arc::new(Sandbox::new(Arc::new(table), SandboxLimits::production()))
@@ -190,6 +198,28 @@ async fn open_store(config: &Config) -> anyhow::Result<Store> {
     Store::open(&path)
         .await
         .with_context(|| format!("could not open {}", path.display()))
+}
+
+/// Makes the chain of the web providers, in the sequence that Nuki tries them. All providers
+/// share one HTTP client with `WEB_TIMEOUT`.
+fn web_chain() -> anyhow::Result<WebChain> {
+    let http = reqwest::Client::builder()
+        .timeout(WEB_TIMEOUT)
+        .build()
+        .context("could not make the HTTP client of the web providers")?;
+    Ok(WebChain::new(vec![
+        Box::new(TavilyClient::new(http.clone(), parse_url(TAVILY_API_BASE)?)),
+        Box::new(FirecrawlClient::new(
+            http.clone(),
+            parse_url(FIRECRAWL_API_BASE)?,
+        )),
+        Box::new(ExaClient::new(http.clone(), parse_url(EXA_MCP_URL)?)),
+        Box::new(ParallelClient::new(http, parse_url(PARALLEL_MCP_URL)?)),
+    ]))
+}
+
+fn parse_url(url: &str) -> anyhow::Result<Url> {
+    Url::parse(url).with_context(|| format!("could not parse the URL {url}"))
 }
 
 /// `nukeop/nuclear` first, then the repositories of the organization.

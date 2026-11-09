@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","error":{"code":-32000,"message":"You've hit Exa's free MCP rate limit. To continue using without limits, create your own Exa API key.\n\nFix: Create API key at https://dashboard.exa.ai/api-keys , then either:\n- Set the header: Authorization: Bearer YOUR_EXA_API_KEY\n- Or use the URL: https://mcp.exa.ai/mcp?exaApiKey=YOUR_EXA_API_KEY"},"id":null}

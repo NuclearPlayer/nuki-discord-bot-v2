@@ -11,7 +11,7 @@ const NAMESPACE: &str = "web";
 
 const SEARCH_TYPE: &str = "{ title: string; url: string; content: string }[]";
 
-/// Returns the operations that search the web and read web pages through Tavily.
+/// Returns the operations that search the web and read web pages through the web providers.
 pub fn web_table(ops: WebOps) -> OperationTable {
     let ops = Arc::new(ops);
     OperationTable::new(vec![search(&ops), fetch(&ops)])
@@ -70,11 +70,11 @@ mod tests {
     use crate::sandbox::test_support::value;
     use crate::test_support::json_response;
     use crate::web::test_support::{
-        EXTRACT, EXTRACT_TEXT, SEARCH, client_for, mount_extract, search_results,
+        EXTRACT, EXTRACT_TEXT, SEARCH, chain_for, mount_extract, search_results,
     };
 
     async fn run(server: &MockServer, code: &str) -> ScriptOutcome {
-        let table = web_table(WebOps::new(Arc::new(client_for(server))));
+        let table = web_table(WebOps::new(Arc::new(chain_for(server))));
         Sandbox::new(Arc::new(table), SandboxLimits::production())
             .run(code)
             .await

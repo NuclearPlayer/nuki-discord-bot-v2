@@ -1,0 +1,39 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"search_id\": \"search_1ed7fdde8cd2d011d0576fba4d425e58\",\n  \"results\": [\"...\"]\n}"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "search_id": "search_1ed7fdde8cd2d011d0576fba4d425e58",
+      "results": [
+        {
+          "url": "https://docs.nuclearplayer.com/nuclear",
+          "title": "Nuclear Documentation | Nuclear",
+          "publish_date": null,
+          "excerpts": ["# Nuclear Documentation", "Nuclear is a free, open-source music player."]
+        },
+        {
+          "url": "https://github.com/nukeop/nuclear",
+          "title": null,
+          "publish_date": null,
+          "excerpts": ["# nukeop/nuclear\n\n- Page: GitHub repository"]
+        },
+        {
+          "url": "https://flathub.org/apps/org.js.nuclear.Nuclear",
+          "title": "Install Nuclear on Linux | Flathub",
+          "publish_date": null,
+          "excerpts": ["Install Nuclear from Flathub."]
+        }
+      ],
+      "warnings": null,
+      "metadata": null,
+      "session_id": "session_1ed7fdde8cd2d011d0576fba4d425e58"
+    }
+  }
+}

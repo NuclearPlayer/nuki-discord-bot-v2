@@ -1,0 +1,28 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"extract_id\": \"extract_795dc11624c41ba5cbcaa2f174de8d36\",\n  \"results\": [],\n  \"errors\": [\"...\"]\n}"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "extract_id": "extract_795dc11624c41ba5cbcaa2f174de8d36",
+      "results": [],
+      "errors": [
+        {
+          "url": "https://example.invalid/x",
+          "error_type": "connect_error",
+          "http_status_code": null,
+          "content": null
+        }
+      ],
+      "warnings": null,
+      "metadata": null,
+      "session_id": "session_795dc11624c41ba5cbcaa2f174de8d36"
+    }
+  }
+}

@@ -1,0 +1,3 @@
+event: message
+data: {"result":{"content":[{"type":"text","text":"Error fetching URL(s): https://example.invalid/x: CRAWL_UNKNOWN_ERROR"}],"isError":true},"jsonrpc":"2.0","id":1}
+

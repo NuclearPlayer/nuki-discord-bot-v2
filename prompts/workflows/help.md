@@ -10,7 +10,7 @@ Someone needs you for Nuclear: a question, a problem, or an idea for a feature. 
    - `messageId` is the newest message of the user that describes the problem, in the current channel or thread. `channelId` is the current channel or thread.
    - `title` is a few words. `summary` tells the problem or the request in one to three sentences.
    - Put the facts that you know in `details`: the version, the platform, the plugins, a newer version that possibly fixed it, or a feature or plugin that already does something similar.
-4. Tell the user that the report went to the team: write it in `note`, in your own words, and `reports.send` posts it in the thread. In your reply, link the thread with `<#threadId>`.
+4. Tell the user that the report went to the team.
 5. If you already sent a report for the same problem in this conversation, don't send it again. Just answer the user.
 
 ## How to answer

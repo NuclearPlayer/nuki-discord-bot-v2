@@ -7,19 +7,26 @@ pub struct ChatWorkflow {
 
 impl ChatWorkflow {
     /// Runs one turn with the workflow prompt `prompt`. An empty text is a valid answer. If the
-    /// text is empty, Nuki only reacted, and the bot sends nothing.
+    /// text is empty, Nuki only reacted, and the bot sends nothing. If the turn sent a report,
+    /// the reply goes to the thread of the report.
     pub async fn run(&self, ctx: &TurnContext, prompt: WorkflowPrompt) -> anyhow::Result<Outcome> {
         let result = llm_turn(&self.deps, ctx, prompt).await?;
         if result.text.is_empty() {
             return Ok(Outcome::Nothing);
         }
-        Ok(Outcome::Reply(Reply::from(result)))
+        Ok(Outcome::Reply(Reply {
+            text: result.text,
+            turn_messages: result.turn_messages,
+            report_thread_id: ctx.report_thread.get(),
+        }))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use std::sync::Arc;
+
+    use serde_json::{Value, json};
     use wiremock::MockServer;
 
     use super::*;
@@ -29,10 +36,14 @@ mod tests {
         mount_llm_replies,
     };
     use crate::prompts::system::SystemPrompt;
+    use crate::sandbox::operation::{Operation, OperationTable};
+    use crate::sandbox::ops::reports::ReportThread;
+    use crate::sandbox::runtime::{Sandbox, SandboxLimits};
     use crate::workflows::test_support::{context, deps};
 
     const CHAT_REPLY: &str = include_str!("../../tests/fixtures/workflows/chat_reply.json");
     const RUN_SCRIPT_CALL: &str = include_str!("../../tests/fixtures/llm/run_script_call.json");
+    const REPORT_THREAD_ID: u64 = 1100000000000000003;
 
     async fn run_chat(server: &MockServer) -> Outcome {
         run_with(server, WorkflowPrompt::Chat).await
@@ -79,8 +90,49 @@ mod tests {
             Outcome::Reply(Reply {
                 text: "900 hours? Touch grass, then come back for hour 901.".to_string(),
                 turn_messages: vec![],
+                report_thread_id: None,
             })
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_run_that_sends_a_report_replies_in_the_thread_of_the_report() {
+        let server = MockServer::start().await;
+        mount_llm_replies(&server, &[RUN_SCRIPT_CALL, CHAT_REPLY]).await;
+        let workflow = ChatWorkflow {
+            deps: deps(&server).await,
+        };
+        let ctx = context(vec![user_message(1, "the queue crashes Nuclear")]).await;
+        let ctx = TurnContext {
+            sandbox: reporting_sandbox(ctx.report_thread.clone()),
+            ..ctx
+        };
+
+        let outcome = workflow.run(&ctx, WorkflowPrompt::Help).await.unwrap();
+
+        let Outcome::Reply(reply) = outcome else {
+            panic!("expected a reply, got {outcome:?}");
+        };
+        assert_eq!(reply.report_thread_id, Some(REPORT_THREAD_ID));
+    }
+
+    /// Returns a sandbox with `test.echo`, which sets `report_thread` as `reports.send` does.
+    fn reporting_sandbox(report_thread: ReportThread) -> Arc<Sandbox> {
+        let echo = Operation::typed(
+            "test",
+            "echo",
+            "Sets the report thread.",
+            vec![],
+            "unknown",
+            move |params: Value| {
+                report_thread.set(REPORT_THREAD_ID);
+                async { Ok::<_, String>(params) }
+            },
+        );
+        Arc::new(Sandbox::new(
+            Arc::new(OperationTable::new(vec![echo])),
+            SandboxLimits::production(),
+        ))
     }
 
     #[tokio::test]

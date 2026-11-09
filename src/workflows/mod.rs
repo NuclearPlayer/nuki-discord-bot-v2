@@ -16,6 +16,7 @@ use crate::discord::context::build_history;
 use crate::llm::agent::{LlmClient, TurnRequest, TurnResult};
 use crate::llm::selection::ActiveModel;
 use crate::prompts::system::{RuntimeContext, SystemPrompt, WorkflowPrompt};
+use crate::sandbox::ops::reports::ReportThread;
 use crate::sandbox::runtime::Sandbox;
 use crate::stats::recorder::RunStats;
 
@@ -33,6 +34,8 @@ pub struct TurnContext {
     pub sandbox: Arc<Sandbox>,
     /// The recorder of the run that the turn is part of.
     pub stats: RunStats,
+    /// The thread of the report that `reports.send` sent in the turn, if any.
+    pub report_thread: ReportThread,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,15 +44,9 @@ pub struct Reply {
     /// The tool calls and the tool results of the turn. The handler stores them with the sent
     /// message.
     pub turn_messages: Vec<serde_json::Value>,
-}
-
-impl From<TurnResult> for Reply {
-    fn from(result: TurnResult) -> Reply {
-        Reply {
-            text: result.text,
-            turn_messages: result.turn_messages,
-        }
-    }
+    /// The thread of the report that the turn sent. If it is set, the reply goes to this thread,
+    /// not to the channel of the unit.
+    pub report_thread_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -19,9 +19,9 @@ const MESSAGE_CHARS: usize = 2000;
 
 /// The channel and the reply target for the outcome of one turn.
 pub struct AppliedTurn {
-    /// The channel where Nuki sends her message.
+    /// The channel of the unit. Nuki sends her message here, unless the turn sent a report.
     pub channel_id: ChannelId,
-    /// The message that Nuki's reply refers to.
+    /// The unit's message that Nuki's reply refers to, in the channel of the unit.
     pub reply_to: MessageId,
 }
 
@@ -51,6 +51,10 @@ pub async fn apply_outcome(
 /// Sends the text in parts that Discord accepts. Sends the first part as the reply, and the other
 /// parts as new messages in the same channel, not as replies. Stores the tool turn with the ID
 /// of the first message. Records the IDs of all parts.
+///
+/// If the turn sent a report, sends the text to the thread of the report. The first part refers
+/// to the unit's message only in the unit's channel, because Discord refuses a reference to a
+/// message in another channel.
 async fn send_reply(
     http: &Http,
     store: &Store,
@@ -58,24 +62,29 @@ async fn send_reply(
     applied: &AppliedTurn,
     reply: Reply,
 ) -> anyhow::Result<()> {
+    let channel_id = reply
+        .report_thread_id
+        .map_or(applied.channel_id, ChannelId::new);
+    let reply_to = (channel_id == applied.channel_id).then_some(applied.reply_to);
     let mut parts = split_reply(&reply.text).into_iter();
     let first = parts.next().expect("split_reply returns at least one part");
-    let message = CreateMessage::new()
-        .content(first)
-        .reference_message((applied.channel_id, applied.reply_to));
-    let sent = applied.channel_id.send_message(http, message).await?;
-    save_tool_turn(store, applied.channel_id, sent.id, &reply).await?;
+    let message = CreateMessage::new().content(first);
+    let message = match reply_to {
+        Some(message_id) => message.reference_message((channel_id, message_id)),
+        None => message,
+    };
+    let sent = channel_id.send_message(http, message).await?;
+    save_tool_turn(store, channel_id, sent.id, &reply).await?;
     let mut message_ids = vec![sent.id.get()];
     for part in parts {
-        let sent = applied
-            .channel_id
+        let sent = channel_id
             .send_message(http, CreateMessage::new().content(part))
             .await?;
         message_ids.push(sent.id.get());
     }
     let reply_sent = ReplySent {
         message_ids,
-        reply_to: Some(applied.reply_to.get()),
+        reply_to: reply_to.map(MessageId::get),
         text: reply.text,
     };
     stats.record(None, Event::ReplySent(reply_sent)).await;
@@ -143,22 +152,29 @@ fn fits(part: &str, piece: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{Value, json};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer};
 
     use super::*;
-    use crate::stats::test_support::{events_between, run_event, test_run};
+    use crate::stats::test_support::{RunEvent, events_between, run_event, test_run};
     use crate::test_support::{discord_http, json_response};
 
     const SENT_MESSAGE: &str = include_str!("../../tests/fixtures/discord/reply_sent_message.json");
     const SENT_MESSAGE_ID: &str = "SENT_MESSAGE_ID";
     const CHANNEL_ID: u64 = 1200000000000000003;
+    const THREAD_ID: u64 = 1100000000000000005;
+    const UNIT_MESSAGE_ID: u64 = 1100000000000000001;
 
-    /// Discord answers the first message with the ID `first_id`, and each subsequent message
-    /// with `next_id`.
-    async fn mount_sent_messages(discord: &MockServer, first_id: &str, next_id: &str) {
-        let messages = format!("/api/v10/channels/{CHANNEL_ID}/messages");
+    /// Discord answers the first message in `channel_id` with the ID `first_id`, and each
+    /// subsequent message with `next_id`.
+    async fn mount_sent_messages_in(
+        discord: &MockServer,
+        channel_id: u64,
+        first_id: &str,
+        next_id: &str,
+    ) {
+        let messages = format!("/api/v10/channels/{channel_id}/messages");
         Mock::given(method("POST"))
             .and(path(&messages))
             .respond_with(json_response(
@@ -178,19 +194,167 @@ mod tests {
             .await;
     }
 
+    async fn mount_sent_messages(discord: &MockServer, first_id: &str, next_id: &str) {
+        mount_sent_messages_in(discord, CHANNEL_ID, first_id, next_id).await;
+    }
+
+    /// Returns the bodies of the messages that Discord got for `channel_id`.
+    async fn bodies_in(discord: &MockServer, channel_id: u64) -> Vec<Value> {
+        let messages = format!("/api/v10/channels/{channel_id}/messages");
+        discord
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|request| request.url.path() == messages)
+            .map(|request| request.body_json().unwrap())
+            .collect()
+    }
+
+    /// The turn of a unit in `channel_id`, with Nuki's reply to the message `UNIT_MESSAGE_ID`.
+    fn turn_in(channel_id: u64) -> AppliedTurn {
+        AppliedTurn {
+            channel_id: ChannelId::new(channel_id),
+            reply_to: MessageId::new(UNIT_MESSAGE_ID),
+        }
+    }
+
+    fn short_reply(report_thread_id: Option<u64>) -> Reply {
+        Reply {
+            text: "sent it to the team~".to_string(),
+            turn_messages: vec![],
+            report_thread_id,
+        }
+    }
+
+    /// Sends `reply` for `applied`. Returns the events of the run.
+    async fn send(discord: &MockServer, applied: &AppliedTurn, reply: Reply) -> Vec<RunEvent> {
+        let (store, stats) = test_run().await;
+        let before = Utc::now();
+        send_reply(&discord_http(discord), &store, &stats, applied, reply)
+            .await
+            .unwrap();
+        let after = Utc::now();
+        events_between(&store, before, after).await
+    }
+
+    /// Returns the body of a message with `content`. If `reference` is set, the message refers
+    /// to the message `(channel ID, message ID)`.
+    fn message_body(content: &str, reference: Option<(u64, u64)>) -> Value {
+        let mut body = json!({
+            "content": content,
+            "tts": false,
+            "embeds": [],
+            "sticker_ids": [],
+            "attachments": [],
+            "enforce_nonce": false
+        });
+        if let Some((channel_id, message_id)) = reference {
+            body["message_reference"] = json!({
+                "type": 0,
+                "message_id": message_id.to_string(),
+                "channel_id": channel_id.to_string(),
+                "guild_id": null,
+                "fail_if_not_exists": null,
+            });
+        }
+        body
+    }
+
+    #[tokio::test]
+    async fn a_reply_without_a_report_thread_refers_to_the_message_in_the_channel() {
+        let discord = MockServer::start().await;
+        mount_sent_messages(&discord, "1100000000000000031", "1100000000000000032").await;
+
+        send(&discord, &turn_in(CHANNEL_ID), short_reply(None)).await;
+
+        assert_eq!(
+            bodies_in(&discord, CHANNEL_ID).await,
+            vec![message_body(
+                "sent it to the team~",
+                Some((CHANNEL_ID, UNIT_MESSAGE_ID))
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reply_with_a_report_thread_goes_to_the_thread_as_a_new_message() {
+        let discord = MockServer::start().await;
+        mount_sent_messages_in(
+            &discord,
+            THREAD_ID,
+            "1100000000000000031",
+            "1100000000000000032",
+        )
+        .await;
+
+        send(&discord, &turn_in(CHANNEL_ID), short_reply(Some(THREAD_ID))).await;
+
+        assert_eq!(
+            bodies_in(&discord, THREAD_ID).await,
+            vec![message_body("sent it to the team~", None)]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reply_in_the_report_thread_records_no_reply_target() {
+        let discord = MockServer::start().await;
+        mount_sent_messages_in(
+            &discord,
+            THREAD_ID,
+            "1100000000000000031",
+            "1100000000000000032",
+        )
+        .await;
+
+        let events = send(&discord, &turn_in(CHANNEL_ID), short_reply(Some(THREAD_ID))).await;
+
+        assert_eq!(
+            events,
+            vec![run_event(
+                "reply.sent",
+                json!({
+                    "message_ids": [1100000000000000031_u64],
+                    "reply_to": null,
+                    "text": "sent it to the team~",
+                }),
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reply_in_the_thread_of_the_unit_refers_to_the_message() {
+        let discord = MockServer::start().await;
+        mount_sent_messages_in(
+            &discord,
+            THREAD_ID,
+            "1100000000000000031",
+            "1100000000000000032",
+        )
+        .await;
+
+        send(&discord, &turn_in(THREAD_ID), short_reply(Some(THREAD_ID))).await;
+
+        assert_eq!(
+            bodies_in(&discord, THREAD_ID).await,
+            vec![message_body(
+                "sent it to the team~",
+                Some((THREAD_ID, UNIT_MESSAGE_ID))
+            )]
+        );
+    }
+
     #[tokio::test]
     async fn send_reply_records_the_sent_message_ids_and_the_text() {
         let discord = MockServer::start().await;
         mount_sent_messages(&discord, "1100000000000000031", "1100000000000000032").await;
         let (store, stats) = test_run().await;
         let text = format!("{}\n{}", "a".repeat(1200), "b".repeat(900));
-        let applied = AppliedTurn {
-            channel_id: ChannelId::new(CHANNEL_ID),
-            reply_to: MessageId::new(1100000000000000001),
-        };
+        let applied = turn_in(CHANNEL_ID);
         let reply = Reply {
             text: text.clone(),
             turn_messages: vec![],
+            report_thread_id: None,
         };
         let before = Utc::now();
 

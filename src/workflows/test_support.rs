@@ -11,6 +11,7 @@ use crate::discord::test_support::resolved;
 use crate::llm::agent::LlmClient;
 use crate::llm::selection::ActiveModel;
 use crate::prompts::system::RuntimeContext;
+use crate::sandbox::ops::reports::ReportThread;
 use crate::sandbox::runtime::{Sandbox, SandboxLimits};
 use crate::sandbox::test_support::echo_table;
 use crate::stats::test_support::unrecorded_run;
@@ -46,6 +47,7 @@ pub(crate) async fn context(messages: Vec<ChatMessage>) -> TurnContext {
             SandboxLimits::production(),
         )),
         stats: unrecorded_run().await,
+        report_thread: ReportThread::default(),
     }
 }
 

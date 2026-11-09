@@ -58,6 +58,7 @@ mod tests {
         Outcome::Reply(Reply {
             text: "Open Settings.".to_string(),
             turn_messages: vec![],
+            report_thread_id: None,
         })
     }
 

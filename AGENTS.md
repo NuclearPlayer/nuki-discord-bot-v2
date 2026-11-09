@@ -53,18 +53,24 @@ Jev does not decide if a problem is a bug, a feature request, or a question. Nuk
 1. Find out if Nuclear already does what the user wants. If so, tell the user how.
 2. For a bug, examine the releases and the commits after the user's version. If a newer version possibly fixed the bug, tell the user to update.
 3. For a real bug or a new feature, send a report with `reports.send`. Use only the conversation. Do not ask the user for more details.
-4. Tell the user that the report went to the team, with the link to the thread.
+4. Tell the user that the report went to the team.
 5. Do not send a second report for the same problem in the same conversation.
 
 `ReportsOps::send` (`src/sandbox/ops/reports.rs`) does these steps:
 
 1. If `channelId` is a thread, it uses that thread. If the message `messageId` already has a thread, it uses that thread. If not, it makes a public thread from the message. `thread_name` (`src/discord/reply.rs`) gives the name of the thread.
 2. It sends the embed of `report_embed` (`src/admin/reports.rs`) to the admin log channel. The author of `messageId` is the reporter.
-3. It sends Nuki's `note` in the thread. Then the thread's history shows that Nuki sent the report.
+3. It keeps the thread in the run's `ReportThread`.
 4. It records `thread.created` for a new thread, and `report.sent`.
 5. It returns `{ threadId }`.
 
-Nuki's reply goes to the channel of the unit, as for each Chat reply.
+If `reports.send` succeeded in the run, Nuki's reply goes to the thread of the report, not to the channel of the unit. Then the thread's history shows that Nuki sent the report. These parts carry the thread:
+
+- `turn_context` makes one `ReportThread` for the run. It gives the same `ReportThread` to the sandbox with `App::sandbox_for`, and keeps it in `TurnContext`.
+- `ChatWorkflow::run` copies the thread to `Reply::report_thread_id`.
+- `send_reply` (`src/discord/reply.rs`) sends the reply to that thread. The reply refers to the unit's message only when the thread is the channel of the unit.
+
+If the run sent no report, Nuki's reply goes to the channel of the unit, as for each Chat reply. If her text is empty, Nuki sends nothing.
 
 ### Background tasks
 

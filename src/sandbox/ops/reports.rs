@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serenity::builder::{CreateMessage, CreateThread};
@@ -16,12 +16,31 @@ use crate::stats::recorder::RunStats;
 
 const NAMESPACE: &str = "reports";
 
+/// The thread of the report that the run sent. Nuki's reply goes to this thread. The pipeline
+/// and `reports.send` share one `ReportThread` for each run.
+#[derive(Debug, Clone, Default)]
+pub struct ReportThread(Arc<OnceLock<u64>>);
+
+impl ReportThread {
+    /// Returns the thread of the report, if the run sent a report.
+    pub fn get(&self) -> Option<u64> {
+        self.0.get().copied()
+    }
+
+    /// Keeps `thread_id`. If the run already sent a report, keeps the first thread.
+    pub(crate) fn set(&self, thread_id: u64) {
+        // A second report in one run has no thread of its own for the reply.
+        let _ = self.0.set(thread_id);
+    }
+}
+
 /// The client and the data that the `reports.*` operations use.
 pub struct ReportsOps {
     pub http: Arc<Http>,
     pub admin_log_channel_id: u64,
     /// The recorder of the run in which the scripts call the operations.
     pub stats: RunStats,
+    pub report_thread: ReportThread,
 }
 
 #[derive(Debug, Deserialize)]
@@ -33,7 +52,6 @@ struct SendParams {
     title: String,
     summary: String,
     details: Option<String>,
-    note: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -91,12 +109,6 @@ fn send(ops: &Arc<ReportsOps>) -> Operation {
                 optional: true,
                 description: "Facts such as the version, the platform, a fix in a newer version, or a feature that already exists, at most 1024 characters.",
             },
-            Param {
-                name: "note",
-                ts_type: "string",
-                optional: false,
-                description: "A short message in your own words that tells that you sent the report. The operation posts it in the thread.",
-            },
         ],
         "{ threadId: string }",
         |ops, params: SendParams| async move { ops.send(params).await },
@@ -104,7 +116,7 @@ fn send(ops: &Arc<ReportsOps>) -> Operation {
 }
 
 impl ReportsOps {
-    /// Sends the report embed to the admin log channel, posts the note in the thread, and
+    /// Sends the report embed to the admin log channel, keeps the thread for Nuki's reply, and
     /// records `report.sent`. Returns the thread of the report.
     async fn send(&self, params: SendParams) -> Result<SentReport, DiscordOpError> {
         let channel_id = ChannelId::new(parse_id(&params.channel_id)?);
@@ -126,10 +138,7 @@ impl ReportsOps {
                 CreateMessage::new().embed(report_embed(&report)),
             )
             .await?;
-        // The note stays in the thread's history, so Nuki sees there that she already reported.
-        thread_id
-            .send_message(&self.http, CreateMessage::new().content(params.note))
-            .await?;
+        self.report_thread.set(thread_id.get());
         let sent = ReportSent {
             kind: report.kind,
             thread_id: report.thread_id,
@@ -193,7 +202,9 @@ mod tests {
     use super::*;
     use crate::sandbox::runtime::{Sandbox, SandboxLimits, ScriptOutcome};
     use crate::sandbox::test_support::value;
-    use crate::stats::test_support::{RunEvent, events_between, run_event, test_run};
+    use crate::stats::test_support::{
+        RunEvent, events_between, run_event, test_run, unrecorded_run,
+    };
     use crate::test_support::{discord_http, json_response};
 
     const TEXT_CHANNEL: &str =
@@ -211,8 +222,8 @@ mod tests {
     const REPORTER_ID: u64 = 1300000000000000002;
     const QUESTION: &str = "nuclear is playing wrong streams, what should I do?";
 
-    const SEND_FROM_CHANNEL: &str = "return await reports.send({ kind: 'bug', channelId: '1200000000000000001', messageId: '1100000000000000003', title: 'Wrong streams', summary: 'Nuclear plays the wrong stream for some tracks.', details: 'Version 1.3.0 on Linux.', note: 'sent this to the team~' });";
-    const SEND_FROM_THREAD: &str = "return await reports.send({ kind: 'feature', channelId: '1100000000000000003', messageId: '1100000000000000007', title: 'Stream picker', summary: 'The reporter wants to pick the stream of a track.', note: 'told the team about it ✨' });";
+    const SEND_FROM_CHANNEL: &str = "return await reports.send({ kind: 'bug', channelId: '1200000000000000001', messageId: '1100000000000000003', title: 'Wrong streams', summary: 'Nuclear plays the wrong stream for some tracks.', details: 'Version 1.3.0 on Linux.' });";
+    const SEND_FROM_THREAD: &str = "return await reports.send({ kind: 'feature', channelId: '1100000000000000003', messageId: '1100000000000000007', title: 'Stream picker', summary: 'The reporter wants to pick the stream of a track.' });";
 
     fn message_json(id: u64, channel_id: u64, content: &str) -> Value {
         json!({
@@ -247,15 +258,16 @@ mod tests {
             .await;
     }
 
-    /// Accepts the messages to the admin log channel and to the thread.
-    async fn mount_sent_messages(server: &MockServer) {
-        for channel_id in [ADMIN_CHANNEL_ID, THREAD_ID] {
-            Mock::given(method("POST"))
-                .and(path(format!("/api/v10/channels/{channel_id}/messages")))
-                .respond_with(json_response(200, ADMIN_SENT_MESSAGE))
-                .mount(server)
-                .await;
-        }
+    /// Accepts the messages to the admin log channel. Discord rejects the messages to all other
+    /// channels.
+    async fn mount_admin_channel(server: &MockServer) {
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/api/v10/channels/{ADMIN_CHANNEL_ID}/messages"
+            )))
+            .respond_with(json_response(200, ADMIN_SENT_MESSAGE))
+            .mount(server)
+            .await;
     }
 
     /// Mounts the thread creation from the message `message_id` in `channel_id`. Discord makes
@@ -291,7 +303,7 @@ mod tests {
             question,
         )
         .await;
-        mount_sent_messages(server).await;
+        mount_admin_channel(server).await;
     }
 
     /// Mounts the text channel, the question in it, and the thread that Discord makes from the
@@ -309,8 +321,9 @@ mod tests {
         mount_thread_creation(server, TEXT_CHANNEL_ID, THREAD_ID, 0).await;
     }
 
-    /// Mounts the thread and a message in it. Discord makes no thread.
-    async fn mount_message_in_thread(server: &MockServer) {
+    /// Mounts the thread and a message in it, with no admin log channel. Discord makes no
+    /// thread.
+    async fn mount_thread_without_admin_channel(server: &MockServer) {
         mount_get(server, format!("/api/v10/channels/{THREAD_ID}"), THREAD).await;
         let message = message_json(MESSAGE_IN_THREAD_ID, THREAD_ID, "still wrong streams");
         mount_get(
@@ -320,19 +333,41 @@ mod tests {
         )
         .await;
         mount_thread_creation(server, THREAD_ID, MESSAGE_IN_THREAD_ID, 0).await;
-        mount_sent_messages(server).await;
+    }
+
+    /// Mounts the thread and a message in it. Discord makes no thread.
+    async fn mount_message_in_thread(server: &MockServer) {
+        mount_thread_without_admin_channel(server).await;
+        mount_admin_channel(server).await;
     }
 
     async fn run_in(server: &MockServer, stats: RunStats, code: &str) -> ScriptOutcome {
+        run_with_report_thread(server, stats, ReportThread::default(), code).await
+    }
+
+    async fn run_with_report_thread(
+        server: &MockServer,
+        stats: RunStats,
+        report_thread: ReportThread,
+        code: &str,
+    ) -> ScriptOutcome {
         let ops = ReportsOps {
             http: Arc::new(discord_http(server)),
             admin_log_channel_id: ADMIN_CHANNEL_ID,
             stats,
+            report_thread,
         };
         Sandbox::new(Arc::new(reports_table(ops)), SandboxLimits::production())
             .run(code)
             .await
             .outcome
+    }
+
+    /// Runs `code`. Returns the report thread of the run after the script.
+    async fn report_thread_after(server: &MockServer, code: &str) -> Option<u64> {
+        let report_thread = ReportThread::default();
+        run_with_report_thread(server, unrecorded_run().await, report_thread.clone(), code).await;
+        report_thread.get()
     }
 
     /// Runs `code` in a new run. Returns the outcome and the events of the run.
@@ -355,30 +390,6 @@ mod tests {
             .try_into()
             .unwrap();
         serde_json::from_slice(&request.body).unwrap()
-    }
-
-    /// Returns the paths of the POST requests, in the sequence that Discord got them.
-    async fn posted_paths(server: &MockServer) -> Vec<String> {
-        server
-            .received_requests()
-            .await
-            .unwrap()
-            .iter()
-            .filter(|request| request.method.as_str() == "POST")
-            .map(|request| request.url.path().to_string())
-            .collect()
-    }
-
-    /// Returns the body of a message with only the text `content`.
-    fn text_message(content: &str) -> Value {
-        json!({
-            "content": content,
-            "tts": false,
-            "embeds": [],
-            "sticker_ids": [],
-            "attachments": [],
-            "enforce_nonce": false
-        })
     }
 
     fn reporter_event(kind: &str, data: Value) -> RunEvent {
@@ -428,45 +439,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_posts_the_note_in_the_new_thread() {
+    async fn send_keeps_the_thread_of_the_report_for_the_reply() {
         let server = MockServer::start().await;
         mount_question_in_text_channel(&server).await;
 
-        run_recorded(&server, SEND_FROM_CHANNEL).await;
+        let report_thread = report_thread_after(&server, SEND_FROM_CHANNEL).await;
 
-        assert_eq!(
-            sent_message(&server, THREAD_ID).await,
-            text_message("sent this to the team~")
-        );
+        assert_eq!(report_thread, Some(THREAD_ID));
     }
 
     #[tokio::test]
-    async fn send_posts_the_note_after_the_report() {
+    async fn a_failed_send_keeps_no_thread_for_the_reply() {
         let server = MockServer::start().await;
-        mount_message_in_thread(&server).await;
+        mount_thread_without_admin_channel(&server).await;
 
-        run_recorded(&server, SEND_FROM_THREAD).await;
+        let report_thread = report_thread_after(&server, SEND_FROM_THREAD).await;
 
-        assert_eq!(
-            posted_paths(&server).await,
-            vec![
-                format!("/api/v10/channels/{ADMIN_CHANNEL_ID}/messages"),
-                format!("/api/v10/channels/{THREAD_ID}/messages"),
-            ]
-        );
-    }
-
-    #[tokio::test]
-    async fn send_in_a_thread_posts_the_note_in_that_thread() {
-        let server = MockServer::start().await;
-        mount_message_in_thread(&server).await;
-
-        run_recorded(&server, SEND_FROM_THREAD).await;
-
-        assert_eq!(
-            sent_message(&server, THREAD_ID).await,
-            text_message("told the team about it ✨")
-        );
+        assert_eq!(report_thread, None);
     }
 
     #[tokio::test]

@@ -21,7 +21,7 @@ use crate::routing::cooldown::Cooldowns;
 use crate::routing::dispatch::Thresholds;
 use crate::sandbox::ops::discord::DiscordOps;
 use crate::sandbox::ops::full_table;
-use crate::sandbox::ops::reports::ReportsOps;
+use crate::sandbox::ops::reports::{ReportThread, ReportsOps};
 use crate::sandbox::ops::web::WebOps;
 use crate::sandbox::runtime::{Sandbox, SandboxLimits};
 use crate::stats::recorder::{RunStats, Stats};
@@ -149,8 +149,14 @@ impl App {
     }
 
     /// The sandbox of the `run_script` tool, with the Discord operations of `guild_id`, which
-    /// record their events in the run of `stats`.
-    pub fn sandbox_for(&self, guild_id: GuildId, stats: RunStats) -> Arc<Sandbox> {
+    /// record their events in the run of `stats`. `reports.send` keeps the thread of its report
+    /// in `report_thread`.
+    pub fn sandbox_for(
+        &self,
+        guild_id: GuildId,
+        stats: RunStats,
+        report_thread: ReportThread,
+    ) -> Arc<Sandbox> {
         let discord_ops = DiscordOps {
             http: Arc::clone(&self.http),
             rest: self.rest.clone(),
@@ -163,6 +169,7 @@ impl App {
             http: Arc::clone(&self.http),
             admin_log_channel_id: self.config.admin_log_channel_id,
             stats,
+            report_thread,
         };
         let table = full_table(
             discord_ops,

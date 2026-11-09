@@ -9,6 +9,7 @@ use serenity::model::channel::GuildChannel;
 use crate::app::App;
 use crate::discord::attachments::ResolvedMessage;
 use crate::prompts::system::{CustomEmoji, RuntimeContext};
+use crate::sandbox::ops::reports::ReportThread;
 use crate::stats::recorder::RunStats;
 use crate::workflows::TurnContext;
 
@@ -22,14 +23,16 @@ pub async fn turn_context(
     stats: RunStats,
 ) -> anyhow::Result<TurnContext> {
     let stored_turns = stored_turns(app, &history).await?;
+    let report_thread = ReportThread::default();
     Ok(TurnContext {
         channel_name: channel.name.clone(),
         history,
         unit_len,
         stored_turns,
         runtime: runtime_context(app, channel).await?,
-        sandbox: app.sandbox_for(channel.guild_id, stats.clone()),
+        sandbox: app.sandbox_for(channel.guild_id, stats.clone(), report_thread.clone()),
         stats,
+        report_thread,
     })
 }
 

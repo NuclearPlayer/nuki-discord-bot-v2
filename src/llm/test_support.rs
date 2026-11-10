@@ -6,6 +6,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
 
 use crate::llm::script_tool::with_reminder;
+use crate::prompts::files::EXAMPLES;
 use crate::test_support::json_response;
 
 pub(crate) const MODELS: &str = include_str!("../../tests/fixtures/llm/models.json");
@@ -94,6 +95,12 @@ fn tool_result(message: Message) -> ToolResult {
         panic!("expected one tool result");
     };
     result
+}
+
+/// Returns the text that the last message of each model request ends with: the reply examples in
+/// `<system-reminder>` tags.
+pub(crate) fn examples_reminder() -> String {
+    format!("<system-reminder>\n{}\n</system-reminder>", EXAMPLES.trim())
 }
 
 /// Returns the messages of the request `body` without the first message, the system prompt. The

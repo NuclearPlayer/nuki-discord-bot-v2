@@ -2,9 +2,7 @@ use std::fmt;
 
 use chrono::{DateTime, SecondsFormat, Utc};
 
-use crate::prompts::files::{
-    EXAMPLES, KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_CHAT, WORKFLOW_HELP,
-};
+use crate::prompts::files::{KNOWLEDGE, NUCLEAR, PERSONALITY, WORKFLOW_CHAT, WORKFLOW_HELP};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowPrompt {
@@ -90,7 +88,6 @@ impl SystemPrompt {
             KNOWLEDGE,
             workflow.text(),
             runtime_section.as_str(),
-            EXAMPLES,
         ]
         .into_iter()
         .map(str::trim)

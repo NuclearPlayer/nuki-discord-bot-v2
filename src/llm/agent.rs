@@ -8,6 +8,7 @@ use rig_core::providers::openai::{OpenAI, OpenAIConfig};
 use serde_json::Value;
 use thiserror::Error;
 
+use super::examples_hook::ExamplesHook;
 use super::script_tool::run_script_tool;
 use super::stats_hook::StatsHook;
 use crate::sandbox::runtime::Sandbox;
@@ -90,7 +91,8 @@ impl LlmClient {
     fn agent(&self, request: &TurnRequest) -> Agent {
         let builder = AgentBuilder::new(self.client.completion(&request.model_id))
             .name(AGENT_NAME)
-            .preamble(&request.system_prompt);
+            .preamble(&request.system_prompt)
+            .add_hook(ExamplesHook);
         match &request.sandbox {
             Some(sandbox) => builder
                 .dynamic_tool(run_script_tool(Arc::clone(sandbox), request.stats.clone()))
@@ -150,9 +152,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::llm::script_tool::with_reminder;
     use crate::llm::test_support::{
-        assert_echo_tool_turn, assert_run_script_tool, llm_request_bodies, messages,
-        mount_llm_replies,
+        assert_echo_tool_turn, assert_run_script_tool, examples_reminder, llm_request_bodies,
+        messages, messages_after_system_prompt, mount_llm_replies,
     };
     use crate::sandbox::runtime::SandboxLimits;
     use crate::sandbox::test_support::echo_table;
@@ -265,10 +268,133 @@ mod tests {
                 },
                 { "role": "user", "content": "Hi Nuki." },
                 { "role": "assistant", "content": "Hello." },
-                { "role": "user", "content": "Echo a = 1." }
+                prompt_with_examples()
             ])
         );
         assert_run_script_tool(body);
+    }
+
+    /// Returns the messages that a model request contains after the system prompt: the history
+    /// of `request`, and then `added`.
+    fn request_messages(added: Vec<Value>) -> Value {
+        let history = vec![
+            json!({ "role": "user", "content": "Hi Nuki." }),
+            json!({ "role": "assistant", "content": "Hello." }),
+        ];
+        Value::from([history, added].concat())
+    }
+
+    fn prompt() -> Value {
+        json!({ "role": "user", "content": "Echo a = 1." })
+    }
+
+    fn prompt_with_examples() -> Value {
+        json!({
+            "role": "user",
+            "content": [
+                { "type": "text", "text": "Echo a = 1." },
+                { "type": "text", "text": examples_reminder() }
+            ]
+        })
+    }
+
+    /// Returns the model's call of `run_script` in `RUN_SCRIPT_CALL`, with the ID that rig sends.
+    fn echo_call(id: &str) -> Value {
+        json!({
+            "role": "assistant",
+            "tool_calls": [{
+                "id": id,
+                "type": "function",
+                "function": {
+                    "name": "run_script",
+                    "arguments": r#"{"code":"return await test.echo({ a: 1 })"}"#
+                }
+            }]
+        })
+    }
+
+    const ECHO_RESULT: &str = r#"{"value":{"a":1}}"#;
+
+    fn echo_result(id: &str) -> Value {
+        json!({
+            "role": "tool",
+            "tool_call_id": id,
+            "content": with_reminder(ECHO_RESULT)
+        })
+    }
+
+    fn echo_result_with_examples(id: &str) -> Value {
+        json!({
+            "role": "tool",
+            "tool_call_id": id,
+            "content": format!("{}\n{}", with_reminder(ECHO_RESULT), examples_reminder())
+        })
+    }
+
+    #[tokio::test]
+    async fn run_sends_the_examples_at_the_end_of_the_prompt() {
+        let server = chat_server(&[FINAL_TEXT]).await;
+
+        client(&server)
+            .run(request(None, unrecorded_run().await))
+            .await
+            .unwrap();
+
+        let body = &llm_request_bodies(&server).await[0];
+        assert_eq!(
+            messages_after_system_prompt(body),
+            request_messages(vec![prompt_with_examples()])
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_sends_the_examples_only_on_the_last_message_of_each_request() {
+        let server = chat_server(&[RUN_SCRIPT_CALL, RUN_SCRIPT_CALL, FINAL_TEXT]).await;
+
+        client(&server)
+            .run(request(Some(sandbox()), unrecorded_run().await))
+            .await
+            .unwrap();
+
+        let sent: Vec<Value> = llm_request_bodies(&server)
+            .await
+            .iter()
+            .map(messages_after_system_prompt)
+            .collect();
+        // Both calls have the ID `call_1` in the fixture. Rig sends the second call as `call_2`.
+        assert_eq!(
+            sent,
+            vec![
+                request_messages(vec![prompt_with_examples()]),
+                request_messages(vec![
+                    prompt(),
+                    echo_call("call_1"),
+                    echo_result_with_examples("call_1")
+                ]),
+                request_messages(vec![
+                    prompt(),
+                    echo_call("call_1"),
+                    echo_result("call_1"),
+                    echo_call("call_2"),
+                    echo_result_with_examples("call_2")
+                ]),
+            ]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_keeps_the_examples_out_of_the_turn_messages() {
+        let server = chat_server(&[RUN_SCRIPT_CALL, RUN_SCRIPT_CALL, FINAL_TEXT]).await;
+
+        let result = client(&server)
+            .run(request(Some(sandbox()), unrecorded_run().await))
+            .await
+            .unwrap();
+
+        let [first_call, first_result, second_call, second_result]: [Message; 4] =
+            messages(result.turn_messages).try_into().unwrap();
+        assert_echo_tool_turn(vec![first_call, first_result]);
+        assert_echo_tool_turn(vec![second_call, second_result]);
     }
 
     #[tokio::test(flavor = "multi_thread")]

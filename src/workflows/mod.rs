@@ -92,7 +92,7 @@ mod tests {
     use super::*;
     use crate::discord::test_support::{nuki_message, user_message};
     use crate::llm::test_support::{
-        llm_request_bodies, messages_after_system_prompt, mount_llm_replies,
+        examples_reminder, llm_request_bodies, messages_after_system_prompt, mount_llm_replies,
     };
 
     const FINAL_TEXT: &str = include_str!("../../tests/fixtures/llm/final_text.json");
@@ -119,7 +119,13 @@ mod tests {
             json!([
                 { "role": "user", "content": user_turn_text(1, "hi nuki") },
                 { "role": "assistant", "content": "Hi! What do you need?" },
-                { "role": "user", "content": user_turn_text(3, "how do I add a plugin?") }
+                {
+                    "role": "user",
+                    "content": [
+                        { "type": "text", "text": user_turn_text(3, "how do I add a plugin?") },
+                        { "type": "text", "text": examples_reminder() }
+                    ]
+                }
             ])
         );
     }

@@ -1,158 +1,57 @@
 # AGENTS.md
 
-Nuki is a Rust Discord bot for the server of the Nuclear music player. `README.md` tells what Nuki does. `src/config.rs` and `.env.template` show the environment variables that Nuki reads. This file tells you how the parts of the code work together, and where to find each part.
+Nuki is a Rust Discord bot for the server of the Nuclear music player. `README.md` tells what Nuki does. `src/main.rs` calls `nuki::run()` in `src/lib.rs`. `run()` loads `Config`, makes the `App` (`src/app.rs`), starts the background tasks, and starts the Serenity client.
 
-## Architecture
+## From a message to a reply
 
-`src/main.rs` calls `nuki::run()` in `src/lib.rs`. `run()` loads the configuration, makes the `App` with `App::build`, starts the background tasks, and starts the Serenity client. `App` (`src/app.rs`) holds the services that the handler, the pipeline, and the background tasks share.
+1. `Handler::message` (`src/discord/handler.rs`) discards the messages from bots, the system messages, and the direct messages.
+2. `Debouncer` (`src/routing/debounce.rs`) collects the messages of one author in one channel into one unit. `process_unit` (`src/discord/pipeline.rs`) processes each unit in its own task.
+3. `trigger_of_unit` (`src/routing/trigger.rs`) gives the trigger: `Direct` (mention, managed role, reply to Nuki) or `Unsolicited`.
+4. `fetch_unit_context` (`src/discord/history.rs`) gets the history. In a thread, it adds the starter message and the parent channel's messages.
+5. `Classifier::classify` (`src/routing/classify.rs`) asks Jev for the category.
+6. `decide_with_cooldown` (`src/routing/dispatch.rs`) applies the thresholds and the chat cooldown to an `Unsolicited` unit.
+7. `run_category` (`src/discord/pipeline.rs`) runs `ChatWorkflow` (`src/workflows/chat.rs`) with the Help or the Chat workflow prompt.
+8. `turn_context` (`src/discord/turn_context.rs`) makes the `TurnContext`. `llm_turn` (`src/workflows/mod.rs`) makes the history and the system prompt.
+9. `LlmClient::run` (`src/llm/agent.rs`) runs the agent on OpenRouter. Its `run_script` tool (`src/llm/script_tool.rs`) runs JS in the QuickJS sandbox.
+10. `short_reply` (`src/workflows/reply_length.rs`) does the length check.
+11. `apply_outcome` (`src/discord/reply.rs`) sends the reply and stores the tool turn in `tool_turns`.
 
-### From a message to a reply
+## Design facts
 
-1. `Handler::message` (`src/discord/handler.rs`) receives each message. It discards the messages from bots, the system messages, and the direct messages. It gives all other messages to the `Debouncer`.
-2. `Debouncer` (`src/routing/debounce.rs`) collects the messages of one author in one channel. When the author sends no message for `DEBOUNCE_SECONDS`, it sends the messages as one unit.
-3. `spawn_unit_reader` (`src/discord/pipeline.rs`) starts `process_unit` in a new task for each unit. Each unit is one run, with one `RunStats`.
-4. `trigger_of_unit` (`src/routing/trigger.rs`) gives the trigger of the unit. A unit in a thread gets its trigger in the same way:
-   - `Direct`: a message mentions Nuki or Nuki's managed role, or replies to Nuki.
-   - `Unsolicited`: all other units.
-5. `fetch_unit_context` (`src/discord/history.rs`) gets the last `CONTEXT_MESSAGES` messages of the channel. The unit is at the end. In a thread, the starter message comes before the thread's messages. If the starter message and the thread's messages take fewer than `CONTEXT_MESSAGES` places, the parent channel's messages before the starter message fill the remaining places.
-6. `Classifier::classify` (`src/routing/classify.rs`) sends the history and the unit to Jev with the question in `prompts/decisions/category.md`. Jev gives a probability for each `Category`. For a `Direct` unit, the question has no `ignore` category.
-7. `decide_with_cooldown` (`src/routing/dispatch.rs`) gives the `Decision`. For a `Direct` unit, Nuki runs the top category. For an `Unsolicited` unit, Nuki skips the unit in these conditions:
-   - The top category is `ignore`.
-   - The probability of the top category is below its threshold, `THRESHOLD_HELP` or `THRESHOLD_CHAT`.
-   - The top category is `chat`, and the chat cooldown of the channel is active. If Nuki runs an unsolicited chat, the cooldown starts.
-8. `run_category` (`src/discord/pipeline.rs`) runs `ChatWorkflow` (`src/workflows/chat.rs`) with the workflow prompt of the category: `WorkflowPrompt::Help` for `help`, and `WorkflowPrompt::Chat` for `chat`. Refer to "Reports".
-9. `turn_context` (`src/discord/turn_context.rs`) makes the `TurnContext`: the history, the stored tool turns, the runtime context, and the sandbox for the server.
-10. The workflow calls `llm_turn` (`src/workflows/mod.rs`). `llm_turn` makes the LLM history with `build_history` (`src/discord/context.rs`) and the system prompt with `SystemPrompt::build` (`src/prompts/system.rs`).
-11. `LlmClient::run` (`src/llm/agent.rs`) runs the agent on OpenRouter with the active model. The agent can call the `run_script` tool 50 times at most. Then it must give its text.
-12. `run_script` (`src/llm/script_tool.rs`) runs the JS of the model in the QuickJS `Sandbox` (`src/sandbox/runtime.rs`). The sandbox stops a script after 60 seconds, and cuts its output to 20,000 bytes. The script calls the `discord.*`, `repo.*`, `github.*`, `web.*`, and `reports.*` operations. `WebChain` (`src/web/chain.rs`) does the web requests of `web.*`. It tries four keyless providers in this sequence: Tavily, Firecrawl, Exa, Parallel. Each request has a timeout of 12 seconds, so the chain ends before the sandbox stops the script. If a provider fails, `WebChain` sends the same request to the next provider. If all providers fail, the error lists the error of each provider. `WebChain` cuts the content of each search result to 500 characters. `run_script` adds the reminder of `prompts/tools/reminder.md` after each result that the model gets. `ExamplesHook` (`src/llm/examples_hook.rs`) adds the reply examples of `prompts/examples.md`, in `<system-reminder>` tags, to the last message of each request to the model. That message is the prompt in the first request, and the newest tool result in each subsequent request. The hook changes only the request, so the examples are not in the earlier messages of a request or in `tool_turns`.
-13. The workflow returns an `Outcome`. `apply_outcome` (`src/discord/reply.rs`) sends the reply in parts of 2000 characters or less. It stores the tool turn in `tool_turns`, with the ID of the first part.
-
-If a step fails, `process_unit` sends the error to the admin log channel with `AdminLog::report_error` (`src/admin/log.rs`). Nuki sends nothing in the channel of the unit.
-
-If the text of the Chat workflow is empty, Nuki sends nothing.
-
-### Usage events
-
-`Stats::record` (`src/stats/recorder.rs`) writes usage events to the `events` table. In a run, `RunStats::record` gives each event the run ID, the server, and the channel. `src/stats/event.rs` contains the event types. These functions record the events:
-
-- `record_received` and `report_decision` in `src/discord/pipeline.rs`: `message.received` and `unit.routed`. `src/discord/events.rs` makes their data.
-- `JevClient::decide` (`src/decisions/client.rs`): `jev.call`.
-- `StatsHook` (`src/llm/stats_hook.rs`): `llm.call`, for each model call.
-- `run_script`: `tool.call`.
-- The `discord.*` operations (`src/sandbox/ops/discord/client.rs`): `reaction.added` and `emoji.created`.
-- `timed` (`src/workflows/timed.rs`): `workflow.finished`.
-- `src/discord/reply.rs`: `reply.sent`.
-- `reports.send` (`src/sandbox/ops/reports.rs`): `thread.created` and `report.sent`.
-- `src/discord/commands.rs`: `model.changed`.
-- `AdminLog::report_error`: `error`.
-
-### Reports
-
-Jev does not decide if a problem is a bug, a feature request, or a question. Nuki decides in the Help workflow, because she can read the docs, the code, and the releases. `prompts/workflows/help.md` tells her to do these steps:
-
-1. Find out if Nuclear already does what the user wants. If so, tell the user how.
-2. For a bug, examine the releases and the commits after the user's version. If a newer version possibly fixed the bug, tell the user to update.
-3. For a real bug or a new feature, send a report with `reports.send`. Use only the conversation. Do not ask the user for more details.
-4. Tell the user that the report went to the team.
-5. Do not send a second report for the same problem in the same conversation.
-
-`ReportsOps::send` (`src/sandbox/ops/reports.rs`) does these steps:
-
-1. If `channelId` is a thread, it uses that thread. If the message `messageId` already has a thread, it uses that thread. If not, it makes a public thread from the message. `thread_name` (`src/discord/reply.rs`) gives the name of the thread.
-2. It sends the embed of `report_embed` (`src/admin/reports.rs`) to the admin log channel. The author of `messageId` is the reporter.
-3. It keeps the thread in the run's `ReportThread`.
-4. It records `thread.created` for a new thread, and `report.sent`.
-5. It returns `{ threadId }`.
-
-If `reports.send` succeeded in the run, Nuki's reply goes to the thread of the report, not to the channel of the unit. Then the thread's history shows that Nuki sent the report. These parts carry the thread:
-
-- `turn_context` makes one `ReportThread` for the run. It gives the same `ReportThread` to the sandbox with `App::sandbox_for`, and keeps it in `TurnContext`.
-- `ChatWorkflow::run` copies the thread to `Reply::report_thread_id`.
-- `send_reply` (`src/discord/reply.rs`) sends the reply to that thread. The reply refers to the unit's message only when the thread is the channel of the unit.
-
-If the run sent no report, Nuki's reply goes to the channel of the unit, as for each Chat reply. If her text is empty, Nuki sends nothing.
-
-### Background tasks
-
-`src/tasks.rs` starts one task: `spawn_repo_fetch` updates all clones at intervals of `REPO_FETCH_INTERVAL_MINUTES`.
-
-### `/change-model`
-
-`Handler::ready` registers `/change-model`. `Handler::interaction_create` sends the command to `src/discord/commands.rs`. The autocomplete shows the OpenRouter models from `ModelsClient::list` (`src/llm/models_list.rs`). `ActiveModel::set` (`src/llm/selection.rs`) saves the model ID in `settings`. If no ID is in `settings`, Nuki uses `DEFAULT_MODEL_ID`.
-
-### State
-
-Nuki keeps its state in these locations:
-
-- SQLite, in `DATA_DIR/nuki.sqlite` (`src/store/`). The tables are `settings`, `tool_turns`, and `events`. `Store::open` applies the migrations in `migrations/`.
-- Bare clones of the repositories, in `DATA_DIR/repos/<owner>/<name>.git` (`src/repos/manager.rs`). The catalog contains `nukeop/nuclear` and the public repositories of `NuclearPlayer`. `App::build` clones `nukeop/nuclear`. `RepoManager::ensure_cloned` clones each other repository when a script reads it for the first time.
-- Memory: the debounced messages, the chat cooldowns (`Cooldowns`), and the active model. When Nuki stops, it loses the debounced messages and the cooldowns.
-
-## Where to look
-
-| Task | Files |
-|---|---|
-| Change which messages reach Nuki | `trigger_of`, `trigger_of_unit` in `src/routing/trigger.rs`. `facts_of` in `src/discord/handler.rs`. |
-| Add a trigger rule | A field in `MessageFacts` and a rule in `trigger_of`, in `src/routing/trigger.rs`. Fill the field in `facts_of`. If the rule tells that a message addresses Nuki, put it in `addresses_nuki`. |
-| Change the debounce | `src/routing/debounce.rs`. `DEBOUNCE_SECONDS` in `src/config.rs`. |
-| Change the categories | `prompts/decisions/category.md`, `src/routing/category.rs`, `run_category` in `src/discord/pipeline.rs`. |
-| Change the thresholds or the chat cooldown | `src/routing/dispatch.rs`, `src/routing/cooldown.rs`, `src/config.rs`. |
-| Change which messages are in the history | `fetch_unit_context` in `src/discord/history.rs`. In a thread, `in_thread` adds the starter message, and `parent_messages_before` adds the parent channel's messages before the starter message. |
-| Change how the chat history is shown to the LLM | `build_history` and `header` in `src/discord/context.rs`. `ThreadMarker` in `src/discord/thread_marker.rs`. |
-| Change how the history is shown to Jev | `jev_lines` in `src/discord/context.rs`. |
-| Change how attachments go to the LLM | `src/discord/attachments.rs`, `src/discord/modality.rs`. |
-| Change the author names and roles | `src/discord/authors.rs`. |
-| Change the system prompt | `prompts/*.md`, `prompts/workflows/`. `SystemPrompt::build` and `RuntimeContext` in `src/prompts/system.rs`. |
-| Change a workflow | `src/workflows/chat.rs`, `prompts/workflows/`. `WorkflowPrompt` in `src/prompts/system.rs`. |
-| Change when Nuki sends a report | `prompts/workflows/help.md`. |
-| Change the report or its embed | `src/sandbox/ops/reports.rs`, `src/admin/reports.rs`. |
-| Change how Nuki sends a reply | `src/discord/reply.rs`. |
-| Change the limit of model calls | `MAX_MODEL_CALLS` in `src/llm/agent.rs`. |
-| Change the sandbox limits | `SandboxLimits::production` in `src/sandbox/runtime.rs`. Keep the timeout above the worst time of the web chain, 4 × `WEB_TIMEOUT` in `src/app.rs`. |
-| Add a sandbox operation | `src/sandbox/ops/`. Refer to "Add a sandbox operation". |
-| Change the description of `run_script` | `prompts/tools/run-script.md`, `src/sandbox/declarations.rs`. |
-| Change the model list of `/change-model` | `ModelsClient::list` and `choices` in `src/llm/models_list.rs`. |
-| Change the default model | `DEFAULT_MODEL_ID` in `src/llm/selection.rs`. |
-| Add a usage event | `src/stats/event.rs`. Record the event with `RunStats::record`. |
-| Change the database schema | A new file in `migrations/`, and an `M::up` line in `Store::migrated` in `src/store/mod.rs`. |
-| Add an environment variable | `Config` in `src/config.rs`. |
-| Change the repositories that Nuki can read | `catalog` in `src/app.rs`, `src/repos/catalog.rs`. |
-| Change the GitHub requests | `src/github/client.rs`. |
-| Change the requests of `web.search` and `web.fetch` | The file of the provider in `src/web/`: `tavily.rs`, `firecrawl.rs`, `exa.rs`, or `parallel.rs`. `src/web/json_rpc.rs` sends the requests to Exa and Parallel. |
-| Change the web providers, their sequence, or their timeout | `web_chain` and `WEB_TIMEOUT` in `src/app.rs`. A new provider implements `WebProvider` (`src/web/provider.rs`). If you change the timeout, keep 4 × `WEB_TIMEOUT` below the timeout of `SandboxLimits::production`. |
-| Change the length of the search snippets or of the provider errors | `MAX_CONTENT_CHARS` in `src/web/chain.rs`, `MAX_MESSAGE_CHARS` in `src/web/provider.rs`. |
-| Change the Jev requests | `src/decisions/`. |
-| Change the fetch interval | `src/tasks.rs`, `src/config.rs`. |
+- Jev only classifies a unit as `help`, `chat`, or `ignore`. Nuki decides in the Help workflow (`prompts/workflows/help.md`) if a problem is a bug, a feature request, or a question.
+- `reports.send` (`src/sandbox/ops/reports.rs`) sends the report to the admin log channel and opens a thread. If the run sent a report, Nuki's reply goes to that thread.
+- `ExamplesHook` (`src/llm/examples_hook.rs`) adds `prompts/examples.md` to the last message of each model request. The examples are not in the system prompt or in `tool_turns`.
+- Jev judges the length of each reply (`prompts/decisions/reply-length.md`). If the reply is too long, Nuki rewrites it in a request with no tools (`prompts/tools/too-long.md`).
+- `src/prompts/files.rs` compiles each prompt file into the binary. For each new prompt file, add a constant there. The `## ` headings of `prompts/decisions/category.md` must agree with `Category::name` (`src/routing/category.rs`).
+- The operation table in `src/sandbox/ops/` is the only source of the sandbox functions and of their TypeScript declarations. Do not write them by hand. To add an operation, copy an existing operation in the namespace file.
+- If you change `WEB_TIMEOUT` (`src/app.rs`) or `SandboxLimits::production`, keep 4 × `WEB_TIMEOUT` below the sandbox timeout.
+- If a step fails, `AdminLog::report_error` (`src/admin/log.rs`) sends the error to the admin log channel. Nuki sends nothing in the channel. If the reply text is empty, Nuki also sends nothing.
+- State in SQLite: `DATA_DIR/nuki.sqlite` (`src/store/`), with the tables `settings`, `tool_turns`, and `events`. To change the schema, add a file in `migrations/` and an `M::up` line in `Store::migrated`.
+- State on disk: the bare clones of the repositories in `DATA_DIR/repos/<owner>/<name>.git`.
+- State in memory: the debounced messages, the chat cooldowns, and the active model. Nuki loses the debounced messages and the cooldowns when it stops.
 
 ## Modules
 
-The bot is one crate, `nuki`.
-
 | Module | Contents |
 |---|---|
-| `src/config.rs` | `Config`, with the values of the environment variables. `load_dotenv` loads `.env`. |
-| `src/logging.rs` | The `tracing` subscriber. `RUST_LOG` sets its filter. |
-| `src/tasks.rs` | The background task. |
-| `src/discord/` | The Serenity handler, the pipeline, `/change-model`, the history and the context builder, the attachments, the reply sender, and the usage events of the pipeline. |
-| `src/routing/` | The trigger rules, the debounce, the Jev classification, the thresholds, the chat cooldown, and the `Decision`. |
-| `src/decisions/` | The client and the types of the Jev Decisions API on OpenRouter. |
-| `src/llm/` | The OpenRouter LLM agent and its limits, the `run_script` tool, the model list, and the active model. |
-| `src/workflows/` | `TurnContext`, `Outcome`, `llm_turn`, and the Chat workflow. |
-| `src/prompts/` | The compiled prompt files, the system prompt builder, and the parser of the Jev question file. |
-| `src/sandbox/` | The QuickJS runtime, the operation table, the TypeScript declarations, and the operations in `ops/`, including `reports.send`. |
-| `src/repos/` | The repository catalog, the clone and fetch manager, the `git` CLI wrapper, and the read operations on the clones. |
-| `src/github/` | The read-only GitHub client. It uses REST for releases and pull requests, and GraphQL for Discussions. |
-| `src/web/` | The web providers for web search and page text: Tavily, Firecrawl, Exa, and Parallel. Each provider uses keyless access, with no API key. Exa and Parallel give keyless access only on their MCP endpoints, so `json_rpc.rs` sends one JSON-RPC `tools/call` POST to them. `WebChain` tries the providers in sequence. |
-| `src/stats/` | The usage event types, and the recorder that writes the events of each run to `events`. |
-| `src/store/` | The SQLite store: the tool turns, the settings, and the usage events. |
+| `src/config.rs` | `Config`, with the environment variables. Add new variables here and in `.env.template`. |
+| `src/discord/` | The handler, the pipeline, `/change-model` (`commands.rs`), the history, the context for the LLM and for Jev (`context.rs`), the attachments, the authors, the reply sender. |
+| `src/routing/` | The trigger rules, the debounce, the classification, the categories, the thresholds, the chat cooldown. |
+| `src/decisions/` | The client of the Jev Decisions API on OpenRouter. |
+| `src/llm/` | The agent and its limit of model calls, `run_script`, the hooks, the model list, the active model and `DEFAULT_MODEL_ID` (`selection.rs`). |
+| `src/workflows/` | `TurnContext`, `Outcome`, `llm_turn`, the Chat workflow, the length check. |
+| `src/prompts/`, `prompts/` | The prompt files, the system prompt builder, the parser of the Jev question file. |
+| `src/sandbox/` | The QuickJS runtime and its limits, the operation table, the declarations, the operations in `ops/`. The `run_script` description is in `prompts/tools/run-script.md`. |
+| `src/repos/` | The repository catalog (with `catalog` in `src/app.rs`), the clone and fetch manager, the `git` wrapper. |
+| `src/github/` | The read-only GitHub client. |
+| `src/web/` | The keyless web providers and `WebChain`. `web_chain` in `src/app.rs` sets their sequence. |
+| `src/stats/` | The usage event types (`event.rs`) and the recorder. Record each new event with `RunStats::record`. |
 | `src/admin/` | The report embeds and the error messages for the admin log channel. |
-| `src/test_support.rs` | The test helpers that more than one module uses, for example `json_response` for `wiremock`. |
-
-`tests/fixtures/` contains the recorded API responses. The tests load them with `include_str!`.
+| `src/tasks.rs` | The background task that fetches the clones. |
 
 ## Verification
 
-Run these commands before you report that a change is complete. All three commands must pass:
+Before you report that a change is complete, run these commands. All three must pass. CI (`.github/workflows/ci.yml`) runs the same commands.
 
 ```sh
 cargo fmt --check
@@ -160,77 +59,32 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-CI runs the same commands in `.github/workflows/ci.yml`.
-
 ## Code rules
 
-- Write clear code that is easy to read, in a functional style. If an immutable abstraction is possible, use it.
+- Write clear code in a functional style. If an immutable abstraction is possible, use it.
 - Do not write an `if` statement on one line. Do not put an `if` expression in the position of an argument.
 - Give each module and each function one purpose. If a file has more than one purpose, divide the file.
 - Add only the features, options, checks, and abstractions that the task tells you to add.
 
 ## Test rules
 
-- Test the behavior of the code, not its implementation.
-- In each test, examine the item that the name of the test tells. For example, do not examine the length of a list that contains the item.
-- Do not put defensive checks or null checks in a test. Let the test fail when the code fails.
-- Assert on the full value. If you know the full string, do not assert on a part of it.
-- Do not call an external API in a test. Test the HTTP clients with `wiremock`.
-- Test the git operations with the `git` CLI, on local repositories in a temporary directory. Make the directory with `tempfile`.
-- Test the store with SQLite in memory. Use `Store::open_in_memory()`.
-- Put the test helpers that the tests of a module share in the `test_support` module of that module, for example `src/store/test_support.rs`. Declare it with `#[cfg(test)] pub(crate) mod test_support;`.
-
-## Prompts
-
-The prompts are Markdown files in `prompts/`. `src/prompts/files.rs` compiles each file into the binary as one constant, with `include_str!`. To add a prompt file, add a constant for it in `src/prompts/files.rs`.
-
-`SystemPrompt::build` puts these parts in sequence: `personality.md`, `nuclear.md`, `knowledge.md`, the workflow prompt from `prompts/workflows/`, and the "Current context" section. The "Current context" section gives the name and the ID of the current channel or thread.
-
-`examples.md` is not a part of the system prompt. `ExamplesHook` (`src/llm/examples_hook.rs`) adds it to the last message of each request to the model. The examples are then the last text that the model reads before it writes.
-
-`src/prompts/questions.rs` parses `prompts/decisions/category.md`. The text before the first `## ` heading is the question. Each `## ` heading is the name of one category, and the text below it is the description of that category. The headings must agree with `Category::name` in `src/routing/category.rs`.
-
-## Add a sandbox operation
-
-The operation table is the only source of the sandbox functions. Each `Operation` gives the JS function `namespace.name(params)` in the sandbox. It also gives the TypeScript declaration that the LLM reads in the description of the `run_script` tool. Do not write the JS function or the declaration by hand.
-
-Do these steps:
-
-1. Open the file of the namespace in `src/sandbox/ops/`: `discord/mod.rs`, `repo.rs`, `github.rs`, `web/mod.rs`, or `reports.rs`.
-2. Write a struct for the parameters, with `#[derive(Deserialize)]` and `#[serde(rename_all = "camelCase")]`.
-3. Write a function that returns an `Operation`.
-4. If the operation uses the shared client of the namespace, call `Operation::with_handle` in that function. If not, call `Operation::typed`. All current operations use `Operation::with_handle`.
-5. Give the namespace constant, the name in camelCase, a description of one line, and the `Param` list.
-6. Give the return type as a TypeScript type expression.
-7. Give the async Rust function.
-8. Add the function to the `vec!` of the table function: `discord_table`, `repo_table`, `github_table`, `web_table`, or `reports_table`.
-
-For a new namespace, write a new table function. Add it to `full_table` in `src/sandbox/ops/mod.rs`.
+- Test the behavior, not the implementation. Examine the item that the test name tells, not for example the length of a list that contains it.
+- Do not write defensive checks or null checks. Let the test fail when the code fails. Assert on the full value, not on a part of a known string.
+- Do not call external APIs. Test the HTTP clients with `wiremock`. Load the recorded API responses in `tests/fixtures/` with `include_str!`.
+- Test the git operations with the `git` CLI, on local repositories in a `tempfile` directory. Test the store with `Store::open_in_memory()`.
+- Put the shared test helpers of a module in its `test_support` module, declared with `#[cfg(test)] pub(crate) mod test_support;`. Put the helpers that more than one module uses in `src/test_support.rs`.
 
 ## Comments and docs
 
-Write comments, doc comments, and Markdown docs in ASD-STE100 Simplified Technical English. Load the `asd-ste100` skill for the full rules. These rules matter most in this code:
+Write comments, doc comments, and Markdown docs in ASD-STE100 Simplified Technical English. Load the `asd-ste100` skill for the full rules. These rules matter most:
 
 - Give each sentence a real subject that does the action: a function, a type, Nuki, Discord, Jev, the user. Use the active voice.
-- Start the doc of a function with a verb in the simple present: "Sends the reply." "Returns the thread of the intake."
-- Start the doc of a type or a field with a noun phrase that tells what the item is: "The intake that is open in this thread."
-- Put a condition first, in an `If` or `When` clause: "If the run fails, records the outcome `error` and returns the error."
-- Use the possessive when it is clear: "Nuki's message", "Jev's answer". Do not stack `of` phrases.
-- Write one fact in each sentence. Keep each sentence below 25 words.
-- Write a procedure as steps in the imperative: "Add the function to `repo_table`."
-
-Do not write a behavior as a general rule about an indefinite item. People do not talk like that:
-
-| Stiff | Correct |
-|---|---|
-| A failed run records the outcome `error`, and then returns the error. | If the run fails, records the outcome `error` and returns the error. |
-| An unsolicited message gets no reply. A direct question gets the fallback. | Sends nothing for an unsolicited message. Sends the fallback for a direct question. |
-| A unit in a thread uses that thread. Else the bot makes a public thread. | If the unit is in a thread, uses that thread. If not, makes a public thread from the last message of the unit. |
-| A message of Nuki is an assistant turn. | Nuki's messages become assistant turns. |
-| A push to `master` deploys to Fly.io. | Push to `master` to deploy to Fly.io. |
-| `Http` is not `Clone`. Thus the gateway client needs its own `Http`. | The gateway client needs its own `Http`, because `Http` is not `Clone`. |
-| Returns the facts of `message`. | (Delete it. The signature already tells this.) |
+- Start the doc of a function with a verb in the simple present: "Sends the reply." Start the doc of a type or a field with a noun phrase: "The thread of the report."
+- Put a condition first, in an `If` or `When` clause. Do not write docs that only repeat the signature.
+- Use the possessive when it is clear: "Nuki's message". Do not stack `of` phrases.
+- Write one fact in each sentence. Keep each sentence below 25 words. Write a procedure as steps in the imperative.
+- Do not write a behavior as a general rule about an indefinite item. Write "If the run fails, records the outcome `error`", not "A failed run records the outcome `error`".
 
 ## Commits
 
-Write the commit message on one short line, with no body and no prefix. Tell what changed, for example "Add the background tasks for git fetch and the intake timeout".
+Write the commit message on one short line, with no body and no prefix. Example: "Send Nuki's reply to the report thread".

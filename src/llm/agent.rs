@@ -43,6 +43,8 @@ pub struct TurnRequest {
     pub history: Vec<Message>,
     pub prompt: Message,
     pub sandbox: Option<Arc<Sandbox>>,
+    /// The purpose of the model calls in their `llm.call` events.
+    pub purpose: LlmPurpose,
     /// The recorder of the run that the turn is part of.
     pub stats: RunStats,
 }
@@ -78,7 +80,7 @@ impl LlmClient {
             .max_turns(MAX_MODEL_CALLS)
             .add_hook(StatsHook::new(
                 request.stats,
-                LlmPurpose::Turn,
+                request.purpose,
                 request.model_id,
             ))
             .await?;
@@ -187,6 +189,7 @@ mod tests {
             history: vec![Message::user("Hi Nuki."), Message::assistant("Hello.")],
             prompt: Message::user("Echo a = 1."),
             sandbox,
+            purpose: LlmPurpose::Turn,
             stats,
         }
     }

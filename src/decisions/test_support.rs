@@ -19,6 +19,19 @@ pub(crate) async fn mount_jev_answers(server: &MockServer, answers: Value) {
         .await;
 }
 
+/// Mounts one response for each item of `answers`. Jev gives each response one time, in the
+/// sequence of `answers`.
+pub(crate) async fn mount_jev_answers_in_sequence(server: &MockServer, answers: &[Value]) {
+    for answers in answers {
+        Mock::given(method("POST"))
+            .and(path(DECISIONS_PATH))
+            .respond_with(jev_response(answers.clone()))
+            .up_to_n_times(1)
+            .mount(server)
+            .await;
+    }
+}
+
 /// Returns the Jev request `body` without the instructions of its questions, because the
 /// instructions are prompt text.
 pub(crate) fn without_instructions(mut body: Value) -> Value {

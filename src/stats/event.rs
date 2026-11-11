@@ -67,12 +67,16 @@ impl Event {
 #[serde(rename_all = "snake_case")]
 pub enum JevPurpose {
     Category,
+    /// The check of a reply's length, before the bot sends the reply.
+    ReplyLength,
 }
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum LlmPurpose {
     Turn,
+    /// The rewrite of a reply that Jev found too long.
+    Rewrite,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]

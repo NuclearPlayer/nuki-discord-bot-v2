@@ -7,6 +7,8 @@ pub const WORKFLOW_CHAT: &str = include_str!("../../prompts/workflows/chat.md");
 pub const WORKFLOW_HELP: &str = include_str!("../../prompts/workflows/help.md");
 
 pub const DECISION_CATEGORY: &str = include_str!("../../prompts/decisions/category.md");
+pub const DECISION_REPLY_LENGTH: &str = include_str!("../../prompts/decisions/reply-length.md");
 
 pub const TOOL_RUN_SCRIPT: &str = include_str!("../../prompts/tools/run-script.md");
 pub const TOOL_REMINDER: &str = include_str!("../../prompts/tools/reminder.md");
+pub const TOOL_TOO_LONG: &str = include_str!("../../prompts/tools/too-long.md");

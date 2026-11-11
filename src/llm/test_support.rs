@@ -40,6 +40,24 @@ pub(crate) async fn mount_llm_replies(server: &MockServer, replies: &[&str]) {
     }
 }
 
+/// Returns the chat completion response of a model that answers with `text`. Give it to
+/// `mount_llm_replies`.
+pub(crate) fn llm_text_reply(text: &str) -> String {
+    json!({
+        "id": "gen-text",
+        "object": "chat.completion",
+        "created": 1789000000,
+        "model": "test/model",
+        "choices": [{
+            "index": 0,
+            "finish_reason": "stop",
+            "message": { "role": "assistant", "content": text }
+        }],
+        "usage": { "prompt_tokens": 60, "completion_tokens": 6, "total_tokens": 66 }
+    })
+    .to_string()
+}
+
 pub(crate) async fn llm_request_bodies(server: &MockServer) -> Vec<Value> {
     server
         .received_requests()

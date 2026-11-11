@@ -1,4 +1,5 @@
 pub mod chat;
+mod reply_length;
 #[cfg(test)]
 pub(crate) mod test_support;
 mod timed;
@@ -18,6 +19,7 @@ use crate::llm::selection::ActiveModel;
 use crate::prompts::system::{RuntimeContext, SystemPrompt, WorkflowPrompt};
 use crate::sandbox::ops::reports::ReportThread;
 use crate::sandbox::runtime::Sandbox;
+use crate::stats::event::LlmPurpose;
 use crate::stats::recorder::RunStats;
 
 /// All the data from Discord that a workflow uses for one turn.
@@ -60,6 +62,9 @@ pub struct WorkflowDeps {
     pub llm: Arc<LlmClient>,
     pub jev: Arc<JevClient>,
     pub model: Arc<ActiveModel>,
+    /// The threshold of the reply length check. If Jev's probability that a reply is too long
+    /// is below this value, the bot sends the reply.
+    pub threshold_too_long: f64,
 }
 
 /// Runs the LLM step that all workflows share. The last message of the history is the prompt.
@@ -78,6 +83,7 @@ pub async fn llm_turn(
         history,
         prompt,
         sandbox: Some(Arc::clone(&ctx.sandbox)),
+        purpose: LlmPurpose::Turn,
         stats: ctx.stats.clone(),
     };
     Ok(deps.llm.run(request).await?)

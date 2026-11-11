@@ -128,6 +128,7 @@ impl App {
             llm,
             jev: Arc::clone(&jev),
             model: Arc::clone(&active_model),
+            threshold_too_long: config.threshold_too_long,
         };
 
         let stats = Stats::new(store.events());

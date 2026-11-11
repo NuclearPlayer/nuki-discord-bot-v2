@@ -16,6 +16,8 @@ pub struct Config {
     pub threshold_help: f64,
     #[serde(default = "default_threshold")]
     pub threshold_chat: f64,
+    #[serde(default = "default_threshold_too_long")]
+    pub threshold_too_long: f64,
     #[serde(default = "default_repo_fetch_interval_minutes")]
     pub repo_fetch_interval_minutes: u64,
     #[serde(default = "default_debounce_seconds")]
@@ -34,6 +36,10 @@ fn default_chat_cooldown_minutes() -> u64 {
 
 fn default_threshold() -> f64 {
     0.7
+}
+
+fn default_threshold_too_long() -> f64 {
+    0.5
 }
 
 fn default_repo_fetch_interval_minutes() -> u64 {
@@ -101,6 +107,7 @@ mod tests {
                 chat_cooldown_minutes: 15,
                 threshold_help: 0.7,
                 threshold_chat: 0.7,
+                threshold_too_long: 0.5,
                 repo_fetch_interval_minutes: 15,
                 debounce_seconds: 3,
                 data_dir: PathBuf::from("/data"),
@@ -115,6 +122,7 @@ mod tests {
             ("CHAT_COOLDOWN_MINUTES", "5"),
             ("THRESHOLD_HELP", "0.1"),
             ("THRESHOLD_CHAT", "0.4"),
+            ("THRESHOLD_TOO_LONG", "0.8"),
             ("REPO_FETCH_INTERVAL_MINUTES", "60"),
             ("DEBOUNCE_SECONDS", "10"),
             ("DATA_DIR", "/tmp/nuki"),
@@ -133,6 +141,7 @@ mod tests {
                 chat_cooldown_minutes: 5,
                 threshold_help: 0.1,
                 threshold_chat: 0.4,
+                threshold_too_long: 0.8,
                 repo_fetch_interval_minutes: 60,
                 debounce_seconds: 10,
                 data_dir: PathBuf::from("/tmp/nuki"),

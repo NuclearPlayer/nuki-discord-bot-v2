@@ -1,5 +1,5 @@
 {
-  "model": "liquid/d1-ultra",
+  "model": "nace-ai/drex-max",
   "state": {
     "messages": ["alice: does anyone know how to add a plugin?"],
     "new_messages": ["bob: Nuclear crashes when I open the queue"]
